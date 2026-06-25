@@ -6,7 +6,6 @@ import {
   View,
   TouchableOpacity,
   TextInput,
-  ScrollView,
   Animated,
   Dimensions,
   Platform,
@@ -18,7 +17,7 @@ const isWeb = Platform.OS === 'web';
 // 簡易AI応答データベース（キーワード対応＆ランダム返答）
 const AI_RESPONSES = {
   greetings: ['ピピ！こんにちは！今日もよろしくね！', 'ピュイ！起きてたよ！お話ししよう！', 'クーン、なでなでして〜！'],
-  foods: ['モグモグ…！おいしい！ありがとう！', 'パクパク！これ大好きなんだ！', 'ピピ！お腹いっぱいになってきた！'],
+  foods: ['モグモグ…！おいしい！あもーれ！', 'パクパク！これ大好きなんだ！', 'ピピ！お腹いっぱいになってきた！'],
   happy: ['ウキウキするなぁ！', 'あなたといると、とっても幸せ！', 'ピュイピュイ！ダンスしちゃう！'],
   sad: ['ちょっと寂しいな…', 'お腹がすくと力が出ないよぅ', 'ピピ…もっとかまってほしいな'],
   default: [
@@ -47,6 +46,18 @@ const webStyles = `
     50% { transform: translateY(0); }
     70% { transform: translateY(-10px); }
   }
+  @keyframes halo-glow {
+    0%, 100% { opacity: 0.8; filter: drop-shadow(0 0 5px #ffd700); }
+    50% { opacity: 1; filter: drop-shadow(0 0 12px #ffae00); }
+  }
+  @keyframes devil-glow {
+    0%, 100% { filter: drop-shadow(0 0 2px #ff0055); }
+    50% { filter: drop-shadow(0 0 8px #ff00ff); }
+  }
+  @keyframes bubble-in {
+    0% { opacity: 0; transform: scale(0.8) translateY(10px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
   .web-floating {
     animation: float 4s ease-in-out infinite;
   }
@@ -56,10 +67,18 @@ const webStyles = `
   .web-bouncing {
     animation: bounce 0.8s ease-in-out;
   }
+  .web-halo {
+    animation: halo-glow 2s ease-in-out infinite;
+  }
+  .web-devil {
+    animation: devil-glow 2s ease-in-out infinite;
+  }
+  .web-bubble {
+    animation: bubble-in 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
 `;
 
 // Web環境の場合のみ、マウント前に一度だけドキュメントのheadにスタイルを注入
-// これにより、Reactのコンポーネントツリーを汚さず、毎秒の再マウントによるフリーズを防ぎます。
 if (isWeb && typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.type = 'text/css';
@@ -70,15 +89,20 @@ if (isWeb && typeof document !== 'undefined') {
 export default function App() {
   // --- 状態管理 ---
   const [hunger, setHunger] = useState(80); // お腹すき度 (0 - 100, 100が満腹)
-  const [affection, setAffection] = useState(50); // なつき度 (0 - 100)
+  const [affection, setAffection] = useState(50); // なつき度 (0 - 100, 非表示)
   const [tokens, setTokens] = useState(8); // 行動権トークン (最大10)
   const [nextRecoverySec, setNextRecoverySec] = useState(15); // トークン回復までの時間 (秒)
   const [inputText, setInputText] = useState(''); // チャット入力
-  const [messages, setMessages] = useState([
-    { id: 1, sender: 'pet', text: 'ピピ！ぼくは「あもれもん」！これからよろしくね！', time: '15:00' }
-  ]);
-  const [petEmotion, setPetEmotion] = useState('normal'); // 感情: normal, happy, sad, eating, sleeping
-  const [personality, setPersonality] = useState('すなお'); // 性格
+  
+  // 吹き出しの状態
+  const [bubbleText, setBubbleText] = useState('ピピ！ぼくは「あもれもん」！これからよろしくね！');
+  const [bubbleVisible, setBubbleVisible] = useState(true);
+  
+  // 進化状態
+  const [evolution, setEvolution] = useState('normal'); // normal, angel, devil
+  const [actionCount, setActionCount] = useState(0); // 進化のためのアクション回数カウンター
+
+  const [petEmotion, setPetEmotion] = useState('normal'); // 感情: normal, happy, sad, eating
   const [careScore, setCareScore] = useState(50); // お世話スコア
   const [isBouncing, setIsBouncing] = useState(false); // エサやりのバウンド状態 (Web用)
 
@@ -87,14 +111,18 @@ export default function App() {
   const scaleXAnim = useRef(new Animated.Value(1)).current;
   const scaleYAnim = useRef(new Animated.Value(1)).current;
   const bounceAnim = useRef(new Animated.Value(0)).current;
-  const chatScrollRef = useRef();
+  
+  // 吹き出し消去タイマーの参照
+  const bubbleTimerRef = useRef(null);
 
   // --- タイマーとアニメーションのセットアップ ---
   useEffect(() => {
-    // スマートフォン（iOS/Android）の時だけ、ネイティブのGPUアクセラレーションを有効にしたアニメーションを起動
+    // 初期起動時の吹き出し自動消去タイマーを設定
+    startBubbleTimer();
+
     if (isWeb) return;
 
-    // 1. 浮遊と呼吸アニメーション (スマホアプリで超滑らかに動く設定)
+    // 1. 浮遊と呼吸アニメーション (スマホアプリ用)
     Animated.loop(
       Animated.sequence([
         Animated.timing(floatAnim, {
@@ -138,6 +166,10 @@ export default function App() {
         ]),
       ])
     ).start();
+
+    return () => {
+      if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current);
+    };
   }, []);
 
   // 2. トークン自動回復タイマー (tokensが10未満の時のみ毎秒カウントダウン)
@@ -160,18 +192,25 @@ export default function App() {
     return () => clearInterval(timer);
   }, [tokens]);
 
-  // 3. お腹が徐々に空くタイマー (20秒ごとにお腹度-5)
+  // 3. お腹が徐々に空くタイマー (25秒ごとにお腹度-5)
   useEffect(() => {
     const hungerInterval = setInterval(() => {
-      setHunger((prev) => Math.max(0, prev - 5));
-    }, 20000);
+      setHunger((prev) => {
+        const nextHunger = Math.max(0, prev - 5);
+        if (nextHunger <= 0) {
+          // お腹が完全に空くとケアスコアが下がる
+          setCareScore((score) => Math.max(0, score - 8));
+        }
+        return nextHunger;
+      });
+    }, 25000);
 
     return () => clearInterval(hungerInterval);
   }, []);
 
   // --- ペットの表情・色の判定 ---
   useEffect(() => {
-    if (petEmotion === 'eating' || petEmotion === 'sleeping') return;
+    if (petEmotion === 'eating') return;
 
     if (hunger < 30) {
       setPetEmotion('sad');
@@ -182,25 +221,63 @@ export default function App() {
     }
   }, [hunger, affection, petEmotion]);
 
-  // --- スクロール追従 ---
-  useEffect(() => {
-    if (chatScrollRef.current) {
-      setTimeout(() => {
-        chatScrollRef.current.scrollToEnd({ animated: true });
-      }, 100);
+  // --- 吹き出し表示＆自動消去ロジック (6秒) ---
+  const triggerBubble = (text) => {
+    // 既存のタイマーをクリア
+    if (bubbleTimerRef.current) {
+      clearTimeout(bubbleTimerRef.current);
     }
-  }, [messages]);
+    setBubbleText(text);
+    setBubbleVisible(true);
+    startBubbleTimer();
+  };
+
+  const startBubbleTimer = () => {
+    bubbleTimerRef.current = setTimeout(() => {
+      setBubbleVisible(false);
+    }, 6000); // 6秒間表示
+  };
+
+  // --- アクションカウンターと進化チェック (合計5回アクションで進化) ---
+  const checkEvolution = (currentActionCount, currentCareScore) => {
+    if (evolution !== 'normal') return; // すでに進化している場合はスキップ
+
+    const nextCount = currentActionCount + 1;
+    setActionCount(nextCount);
+
+    if (nextCount >= 5) {
+      // 5回目のアクションで進化決定
+      setTimeout(() => {
+        if (currentCareScore >= 55) {
+          setEvolution('angel');
+          triggerBubble('ピピ…！なんだか体がキラキラ光るよ…！【エンジェルあもれもん】に進化した！👼');
+        } else {
+          setEvolution('devil');
+          triggerBubble('ピピピッ！背中がムズムズする…！【デビルあもれもん】に進化した！😈');
+        }
+        setPetEmotion('happy');
+        // 進化したらステータスを少し回復
+        setHunger(100);
+        setAffection(80);
+      }, 1500);
+    }
+  };
 
   // --- アクション処理: エサをあげる ---
   const handleFeed = () => {
     if (tokens <= 0) {
-      addSystemMessage('⚡ トークンが足りません！時間回復を待つか、広告を見て回復してください。');
+      triggerBubble('⚡ トークンが足りないよぅ。少し待つか、広告を見て回復してね！');
       return;
     }
 
     setTokens((prev) => prev - 1);
     setHunger((prev) => Math.min(100, prev + 25));
-    setCareScore((prev) => Math.min(100, prev + 5));
+    
+    // なつき度とお世話スコアの更新 (画面には表示されない隠し要素)
+    setAffection((prev) => Math.min(100, prev + 5));
+    const nextCareScore = Math.min(100, careScore + 5);
+    setCareScore(nextCareScore);
+
     setPetEmotion('eating');
 
     if (isWeb) {
@@ -226,112 +303,105 @@ export default function App() {
 
     const foodReplies = AI_RESPONSES.foods;
     const reply = foodReplies[Math.floor(Math.random() * foodReplies.length)];
-    addPetMessage(reply);
+    triggerBubble(reply);
 
-    updatePersonality(25, 0);
+    // 進化チェック
+    checkEvolution(actionCount, nextCareScore);
   };
 
   // --- アクション処理: 会話する (送信) ---
   const handleSendMessage = () => {
     if (!inputText.trim()) return;
     if (tokens <= 0) {
-      addSystemMessage('⚡ トークンが足りません！');
+      triggerBubble('⚡ トークンが足りないよぅ。');
       return;
     }
 
     const text = inputText;
     setInputText('');
     setTokens((prev) => prev - 1);
-    addUserMessage(text);
 
-    // 返答生成ロジック
+    // 会話によるなつき度とスコアの更新
+    setAffection((prev) => Math.min(100, prev + 12));
+    const nextCareScore = Math.min(100, careScore + 3);
+    setCareScore(nextCareScore);
+
+    // あもれもんの応答生成
     setTimeout(() => {
       setPetEmotion('happy');
-      setAffection((prev) => Math.min(100, prev + 15));
-      setCareScore((prev) => Math.min(100, prev + 3));
 
       let reply = '';
       const textLower = text.toLowerCase();
-      if (textLower.includes('こんにちは') || textLower.includes('おは') || textLower.includes('ハロー')) {
-        reply = AI_RESPONSES.greetings[Math.floor(Math.random() * AI_RESPONSES.greetings.length)];
-      } else if (textLower.includes('お腹') || textLower.includes('ごはん') || textLower.includes('エサ')) {
-        reply = `ピピ！今のお腹すき具合は【${hunger}%】だよ！${hunger < 50 ? 'お腹すいたなぁ〜' : 'まだ大丈夫！'}`;
-      } else if (textLower.includes('可愛い') || textLower.includes('すき') || textLower.includes('好き')) {
-        reply = 'えへへ、照れちゃうな！ぼくもあなたが大好き！❤️';
+      
+      // 進化状態に応じたセリフの分岐
+      if (evolution === 'angel') {
+        if (textLower.includes('こんにちは') || textLower.includes('おは') || textLower.includes('ハロー')) {
+          reply = 'ごきげんよう！私のお手伝いが必要ですか？ふふっ👼';
+        } else if (textLower.includes('お腹') || textLower.includes('ごはん') || textLower.includes('エサ')) {
+          reply = `お腹の具合は【${hunger}%】です。美味しいフルーツが食べたいですわ🍎`;
+        } else if (textLower.includes('可愛い') || textLower.includes('すき') || textLower.includes('好き')) {
+          reply = '私もあなたのことがとっても愛おしいです！いつも見守っていますね❤️';
+        } else {
+          reply = 'あなたが話しかけてくれるだけで、心にぽっと明かりが灯るようです！';
+        }
+      } else if (evolution === 'devil') {
+        if (textLower.includes('こんにちは') || textLower.includes('おは') || textLower.includes('ハロー')) {
+          reply = 'ちっ、また話しかけてきたのか？…べ、別に嬉しくなんかないぞ！😈';
+        } else if (textLower.includes('お腹') || textLower.includes('ごはん') || textLower.includes('エサ')) {
+          reply = `お腹？【${hunger}%】だけど。早くうまいもん寄越しなさいよ！`;
+        } else if (textLower.includes('可愛い') || textLower.includes('すき') || textLower.includes('好き')) {
+          reply = 'な、何言ってるんだよ！からかわないでよね！バカ！///❤️';
+        } else {
+          reply = 'ふん、暇つぶしに付き合ってやるよ。もっと面白いこと話しなさいよね！';
+        }
       } else {
-        reply = AI_RESPONSES.default[Math.floor(Math.random() * AI_RESPONSES.default.length)];
+        // ノーマル形態のセリフ
+        if (textLower.includes('こんにちは') || textLower.includes('おは') || textLower.includes('ハロー')) {
+          reply = AI_RESPONSES.greetings[Math.floor(Math.random() * AI_RESPONSES.greetings.length)];
+        } else if (textLower.includes('お腹') || textLower.includes('ごはん') || textLower.includes('エサ')) {
+          reply = `ピピ！今のお腹すき具合は【${hunger}%】だよ！${hunger < 50 ? 'お腹すいたなぁ〜' : 'まだ大丈夫！'}`;
+        } else if (textLower.includes('可愛い') || textLower.includes('すき') || textLower.includes('好き')) {
+          reply = 'えへへ、照れちゃうな！ぼくもあなたが大好き！❤️';
+        } else {
+          reply = AI_RESPONSES.default[Math.floor(Math.random() * AI_RESPONSES.default.length)];
+        }
       }
 
-      addPetMessage(reply);
-      updatePersonality(0, 15);
+      triggerBubble(reply);
       
       setTimeout(() => setPetEmotion('normal'), 2500);
-    }, 800);
+    }, 600);
+
+    // 進化チェック
+    checkEvolution(actionCount, nextCareScore);
   };
 
   // --- トークン即時回復 ---
   const handleRecoverTokens = () => {
     setTokens(10);
     setNextRecoverySec(15);
-    addSystemMessage('⚡ 広告の視聴が完了し、トークンが全回復しました！');
+    triggerBubble('⚡ 広告を見てくれてありがとう！トークンが満タンになったよ！');
   };
 
-  // --- 性格決定ロジック (簡易ベクトル進化) ---
-  const updatePersonality = (foodBoost, talkBoost) => {
-    setCareScore((prevScore) => {
-      const nextScore = prevScore + (foodBoost + talkBoost) / 10;
-      // スコアに基づいて性格が進化
-      if (nextScore > 75) {
-        setPersonality('あまえんぼう');
-      } else if (nextScore > 55) {
-        setPersonality('おっとり');
-      } else if (nextScore < 30) {
-        setPersonality('ツンデレ');
-      } else {
-        setPersonality('すなお');
-      }
-      return Math.min(100, Math.max(0, nextScore));
-    });
-  };
-
-  // --- メッセージ追加ユーティリティ ---
-  const getCurrentTime = () => {
-    const now = new Date();
-    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  };
-
-  const addUserMessage = (text) => {
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), sender: 'user', text, time: getCurrentTime() },
-    ]);
-  };
-
-  const addPetMessage = (text) => {
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now() + 1, sender: 'pet', text, time: getCurrentTime() },
-    ]);
-  };
-
-  const addSystemMessage = (text) => {
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now() + 2, sender: 'system', text, time: getCurrentTime() },
-    ]);
-  };
-
-  // --- ペットの色決定 ---
+  // --- ペットの色・グラデーション決定 ---
   const getPetColors = () => {
+    if (evolution === 'angel') {
+      return ['#ffe066', '#fbc2eb']; // 天使のゴールド＆ピンク
+    }
+    if (evolution === 'devil') {
+      return ['#9400d3', '#ff007f']; // 悪魔のディープバイオレット＆ホットピンク
+    }
+    
+    // 通常時の感情による色変化
     switch (petEmotion) {
       case 'happy':
-        return ['#ff758c', '#ff7eb3']; // 愛らしいピンク
+        return ['#ff758c', '#ff7eb3']; // 嬉しくてピンク
       case 'sad':
-        return ['#4facfe', '#00f2fe']; // 寂しいブルー
+        return ['#4facfe', '#00f2fe']; // 寂しくてブルー
       case 'eating':
         return ['#43e97b', '#38f9d7']; // 元気なグリーン
       default:
-        return ['#a18cd1', '#fbc2eb']; // 通常のディープパープル・ピンク
+        return ['#a18cd1', '#e0c3fc']; // 通常のディープパープル
     }
   };
 
@@ -357,7 +427,9 @@ export default function App() {
           <View>
             <Text style={styles.headerTitle}>AMOREMON</Text>
             <View style={styles.badgeContainer}>
-              <Text style={styles.badgeText}>性格: {personality}</Text>
+              <Text style={styles.badgeText}>
+                {evolution === 'normal' ? 'ベイビー期' : evolution === 'angel' ? 'エンジェル期 👼' : 'デビル期 😈'}
+              </Text>
             </View>
           </View>
           <View style={styles.tokenContainer}>
@@ -368,8 +440,19 @@ export default function App() {
           </View>
         </View>
 
-        {/* ペット描画エリア (Canvas) */}
+        {/* メインあもれもん描画エリア (キャンバス) */}
         <View style={styles.petCanvas}>
+          
+          {/* あもれもんの吹き出し (Speech Bubble) */}
+          {bubbleVisible && (
+            <View style={styles.bubbleWrapper} className={isWeb ? 'web-bubble' : ''}>
+              <View style={styles.speechBubble}>
+                <Text style={styles.bubbleTextContent}>{bubbleText}</Text>
+                <View style={styles.bubbleArrow} />
+              </View>
+            </View>
+          )}
+
           <Animated.View
             style={[
               styles.petWrapper,
@@ -381,10 +464,23 @@ export default function App() {
                 : ''
             }
           >
-            {/* ペットの影 */}
+            {/* エンジェル形態時の「天使の輪」 */}
+            {evolution === 'angel' && (
+              <View style={styles.angelHalo} className={isWeb ? 'web-halo' : ''} />
+            )}
+
+            {/* デビル形態時の「ツノ」 */}
+            {evolution === 'devil' && (
+              <View style={styles.devilHornsContainer} className={isWeb ? 'web-devil' : ''}>
+                <View style={[styles.devilHorn, styles.devilHornLeft]} />
+                <View style={[styles.devilHorn, styles.devilHornRight]} />
+              </View>
+            )}
+
+            {/* あもれもんの影 */}
             <View style={styles.petShadow} />
 
-            {/* ペット本体 (グラデーション風の球体) */}
+            {/* あもれもん本体 (グラデーション風の球体) */}
             <View
               style={[
                 styles.petBody,
@@ -394,7 +490,7 @@ export default function App() {
                 },
               ]}
             >
-              {/* ペットの表情 */}
+              {/* あもれもんの表情 */}
               <View style={styles.face}>
                 {petEmotion === 'normal' && (
                   <>
@@ -443,10 +539,10 @@ export default function App() {
           </Animated.View>
         </View>
 
-        {/* ステータスバーエリア */}
+        {/* ステータスバーエリア（お腹のみ表示、なつき度は裏パラへ） */}
         <View style={styles.statusSection}>
           <View style={styles.statusRow}>
-            <Text style={styles.statusLabel}>🍖 お腹</Text>
+            <Text style={styles.statusLabel}>🍖 エネルギー</Text>
             <View style={styles.progressBarBg}>
               <View
                 style={[
@@ -460,59 +556,15 @@ export default function App() {
             </View>
             <Text style={styles.statusVal}>{hunger}%</Text>
           </View>
-
-          <View style={styles.statusRow}>
-            <Text style={styles.statusLabel}>❤️ なつき</Text>
-            <View style={styles.progressBarBg}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  {
-                    width: `${affection}%`,
-                    backgroundColor: '#ff3366',
-                  },
-                ]}
-              />
-            </View>
-            <Text style={styles.statusVal}>{affection}%</Text>
-          </View>
         </View>
 
-        {/* チャット履歴表示エリア */}
-        <View style={styles.chatSection}>
-          <ScrollView
-            ref={chatScrollRef}
-            style={styles.chatScroll}
-            contentContainerStyle={styles.chatContent}
-          >
-            {messages.map((msg) => (
-              <View
-                key={msg.id}
-                style={[
-                  styles.msgWrapper,
-                  msg.sender === 'user'
-                    ? styles.msgUser
-                    : msg.sender === 'system'
-                    ? styles.msgSystem
-                    : msg.sender === 'pet',
-                ]}
-              >
-                <View
-                  style={[
-                    styles.msgBubble,
-                    msg.sender === 'user'
-                      ? styles.bubbleUser
-                      : msg.sender === 'system'
-                      ? styles.bubbleSystem
-                      : styles.bubblePet,
-                  ]}
-                >
-                  <Text style={styles.msgText}>{msg.text}</Text>
-                  <Text style={styles.msgTime}>{msg.time}</Text>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
+        {/* 中央の広々としたあもれもんの観察空間 */}
+        <View style={styles.observationArea}>
+          <Text style={styles.observationHint}>
+            {evolution === 'normal'
+              ? 'お世話をすると、あもれもんが進化するよ。どんな姿になるかな？'
+              : 'あもれもんのお世話を続けよう。会話の内容が変化しているよ。'}
+          </Text>
         </View>
 
         {/* 入力・操作アクションエリア */}
@@ -628,17 +680,97 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   petCanvas: {
-    height: 240,
+    height: 330,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
     backgroundColor: '#0a0f2d',
+    paddingTop: 40,
+  },
+  bubbleWrapper: {
+    position: 'absolute',
+    top: 25,
+    zIndex: 10,
+    width: '85%',
+    alignItems: 'center',
+  },
+  speechBubble: {
+    backgroundColor: 'rgba(30, 41, 59, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 127, 0.3)',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    position: 'relative',
+    shadowColor: '#ff007f',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
+    backdropFilter: 'blur(5px)',
+  },
+  bubbleTextContent: {
+    color: '#f8fafc',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  bubbleArrow: {
+    position: 'absolute',
+    bottom: -8,
+    left: '50%',
+    marginLeft: -8,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightWidth: 8,
+    borderRightColor: 'transparent',
+    borderTopWidth: 8,
+    borderTopColor: 'rgba(30, 41, 59, 0.9)',
   },
   petWrapper: {
     alignItems: 'center',
     justifyContent: 'center',
     width: 140,
     height: 140,
+  },
+  angelHalo: {
+    position: 'absolute',
+    top: -20,
+    width: 60,
+    height: 15,
+    borderRadius: 10,
+    borderWidth: 3,
+    borderColor: '#ffd700',
+    backgroundColor: 'transparent',
+    transform: [{ rotateX: '60deg' }],
+    zIndex: 2,
+    opacity: 0.9,
+  },
+  devilHornsContainer: {
+    position: 'absolute',
+    top: -5,
+    width: 70,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 2,
+  },
+  devilHorn: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightWidth: 8,
+    borderRightColor: 'transparent',
+    borderBottomWidth: 16,
+    borderBottomColor: '#ff0055',
+  },
+  devilHornLeft: {
+    transform: [{ rotate: '-25deg' }],
+  },
+  devilHornRight: {
+    transform: [{ rotate: '25deg' }],
   },
   petBody: {
     width: 110,
@@ -660,7 +792,6 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    transform: [{ scaleX: 1 }],
   },
   face: {
     alignItems: 'center',
@@ -730,12 +861,11 @@ const styles = StyleSheet.create({
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
   },
   statusLabel: {
     color: '#e5e7eb',
     fontSize: 12,
-    width: 65,
+    width: 90,
     fontWeight: '600',
   },
   progressBarBg: {
@@ -756,63 +886,18 @@ const styles = StyleSheet.create({
     width: 32,
     textAlign: 'right',
   },
-  chatSection: {
+  observationArea: {
     flex: 1,
     backgroundColor: '#0f172a',
-  },
-  chatScroll: {
-    flex: 1,
-    padding: 12,
-  },
-  chatContent: {
-    paddingBottom: 20,
-  },
-  msgWrapper: {
-    flexDirection: 'row',
-    marginVertical: 4,
-    width: '100%',
-  },
-  msgPet: {
-    justifyContent: 'flex-start',
-  },
-  msgUser: {
-    justifyContent: 'flex-end',
-  },
-  msgSystem: {
+    padding: 20,
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  msgBubble: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    maxWidth: '85%',
-  },
-  bubblePet: {
-    backgroundColor: '#1e293b',
-    borderTopLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  bubbleUser: {
-    backgroundColor: '#1d4ed8',
-    borderTopRightRadius: 4,
-  },
-  bubbleSystem: {
-    backgroundColor: '#3f3f46',
-    borderRadius: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-  },
-  msgText: {
-    color: '#f8fafc',
-    fontSize: 13,
+  observationHint: {
+    color: '#64748b',
+    fontSize: 12,
+    textAlign: 'center',
     lineHeight: 18,
-  },
-  msgTime: {
-    color: '#94a3b8',
-    fontSize: 9,
-    alignSelf: 'flex-end',
-    marginTop: 4,
   },
   inputArea: {
     padding: 16,
