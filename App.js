@@ -440,7 +440,6 @@ export default function App() {
   const handleWatchAd = () => {
     setIsAdLoading(true);
     setPurchaseStatus('');
-    // 1.5秒のローディング（広告読み込みシミュレーション）
     setTimeout(() => {
       setIsAdLoading(false);
       setTokens(10);
@@ -635,11 +634,12 @@ export default function App() {
               </Animated.View>
             </View>
 
-            {/* 観察空間 (完全に空白。あもれもんの美しさを際立たせる) */}
+            {/* 観察空間 (完全に空白) */}
             <View style={styles.observationSpace} />
 
             {/* 入力・操作アクションエリア */}
             <View style={styles.inputArea}>
+              {/* 1段目: チャット入力欄と送信ボタン */}
               <View style={styles.chatInputRow}>
                 <TextInput
                   style={styles.textInput}
@@ -652,47 +652,51 @@ export default function App() {
                 <TouchableOpacity style={styles.sendButton} onPress={handleSendMessage}>
                   <Text style={styles.sendButtonText}>送信</Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity style={styles.careMenuButton} onPress={() => setIsMenuVisible(true)}>
-                  <Text style={styles.careButtonText}>お世話 ✨</Text>
-                </TouchableOpacity>
               </View>
+
+              {/* 2段目: お世話をするボタンを下に大きく配置 (見切れ防止・自動翻訳対策のtranslate指定) */}
+              <TouchableOpacity 
+                style={styles.careMenuButton} 
+                onPress={() => setIsMenuVisible(true)}
+                translate="no"
+              >
+                <Text style={styles.careButtonText} translate="no">お世話をする ✨</Text>
+              </TouchableOpacity>
             </View>
 
             {/* お世話メニュー (ボトムシート風スライドアップ画面) */}
             {isMenuVisible && (
               <View style={styles.overlayContainer} className={isWeb ? 'web-fade-in' : ''}>
-                {/* 背景タップで閉じる */}
                 <TouchableOpacity style={styles.overlayBg} activeOpacity={1} onPress={() => setIsMenuVisible(false)} />
                 
                 <View style={styles.bottomSheet} className={isWeb ? 'web-slide-up' : ''}>
                   <View style={styles.sheetHeader}>
                     <View style={styles.sheetHandle} />
-                    <Text style={styles.sheetTitle}>{petName}のお世話をする</Text>
+                    <Text style={styles.sheetTitle} translate="no">{petName}のお世話をする</Text>
                   </View>
 
                   <View style={styles.sheetButtonsContainer}>
-                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performFeed}>
+                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performFeed} translate="no">
                       <Text style={styles.sheetOptionIcon}>🍖</Text>
-                      <Text style={styles.sheetOptionLabel}>お食事</Text>
-                      <Text style={styles.sheetOptionDesc}>エネルギーが回復します</Text>
+                      <Text style={styles.sheetOptionLabel} translate="no">お食事</Text>
+                      <Text style={styles.sheetOptionDesc} translate="no">エネルギーが回復します</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performPlay}>
+                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performPlay} translate="no">
                       <Text style={styles.sheetOptionIcon}>🪁</Text>
-                      <Text style={styles.sheetOptionLabel}>遊ぶ</Text>
-                      <Text style={styles.sheetOptionDesc}>なつき度が上昇します</Text>
+                      <Text style={styles.sheetOptionLabel} translate="no">遊ぶ</Text>
+                      <Text style={styles.sheetOptionDesc} translate="no">なつき度が上昇します</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performGift}>
+                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performGift} translate="no">
                       <Text style={styles.sheetOptionIcon}>🎁</Text>
-                      <Text style={styles.sheetOptionLabel}>プレゼント</Text>
-                      <Text style={styles.sheetOptionDesc}>なつき度が大幅に上昇します</Text>
+                      <Text style={styles.sheetOptionLabel} translate="no">プレゼント</Text>
+                      <Text style={styles.sheetOptionDesc} translate="no">なつき度が大幅に上昇します</Text>
                     </TouchableOpacity>
                   </View>
 
-                  <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setIsMenuVisible(false)}>
-                    <Text style={styles.sheetCloseText}>キャンセル</Text>
+                  <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setIsMenuVisible(false)} translate="no">
+                    <Text style={styles.sheetCloseText} translate="no">キャンセル</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -703,36 +707,34 @@ export default function App() {
               <View style={styles.overlayContainer} className={isWeb ? 'web-fade-in' : ''}>
                 <View style={styles.overlayBg} />
                 
-                <View style={styles.modalCard}>
+                <View style={styles.modalCard} translate="no">
                   {isAdLoading ? (
-                    /* 動画ロード中の表示 */
-                    <View style={styles.modalLoadingArea}>
+                    <View style={styles.modalLoadingArea} translate="no">
                       <ActivityIndicator size="large" color="#ff007f" />
-                      <Text style={styles.modalLoadingText}>あもれもんの夢を読み込み中... 💤</Text>
+                      <Text style={styles.modalLoadingText} translate="no">{petName}の夢を読み込み中... 💤</Text>
                     </View>
                   ) : (
-                    /* 通常の回復選択肢 */
                     <>
-                      <Text style={styles.modalTitle}>{petName}がおねむです 😴</Text>
-                      <Text style={styles.modalSubtitle}>
+                      <Text style={styles.modalTitle} translate="no">{petName}がおねむです 😴</Text>
+                      <Text style={styles.modalSubtitle} translate="no">
                         アクションを起こすエネルギー（トークン）が空っぽになってしまいました。
                         ゆっくり休ませてあげるか、回復してあげましょう。
                       </Text>
 
                       {purchaseStatus ? (
-                        <Text style={styles.purchaseStatusText}>{purchaseStatus}</Text>
+                        <Text style={styles.purchaseStatusText} translate="no">{purchaseStatus}</Text>
                       ) : null}
 
-                      <TouchableOpacity style={styles.modalOptionButton} onPress={handleWatchAd}>
-                        <Text style={styles.modalOptionText}>📽️ 動画を見て全回復（無料）</Text>
+                      <TouchableOpacity style={styles.modalOptionButton} onPress={handleWatchAd} translate="no">
+                        <Text style={styles.modalOptionText} translate="no">📽️ 動画を見て全回復（無料）</Text>
                       </TouchableOpacity>
 
-                      <TouchableOpacity style={[styles.modalOptionButton, styles.modalPayButton]} onPress={handlePurchaseTokens}>
-                        <Text style={styles.modalOptionText}>🪙 120円で即時全回復</Text>
+                      <TouchableOpacity style={[styles.modalOptionButton, styles.modalPayButton]} onPress={handlePurchaseTokens} translate="no">
+                        <Text style={styles.modalOptionText} translate="no">🪙 120円で即時全回復</Text>
                       </TouchableOpacity>
 
-                      <TouchableOpacity style={styles.modalCloseButton} onPress={() => setIsModalVisible(false)}>
-                        <Text style={styles.modalCloseText}>閉じる</Text>
+                      <TouchableOpacity style={styles.modalCloseButton} onPress={() => setIsModalVisible(false)} translate="no">
+                        <Text style={styles.modalCloseText} translate="no">閉じる</Text>
                       </TouchableOpacity>
                     </>
                   )}
@@ -1076,17 +1078,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     height: 40,
-    paddingHorizontal: 18,
-    marginLeft: 8,
+    marginTop: 12,
+    width: '100%',
     shadowColor: '#ff007f',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
+    elevation: 3,
   },
   careButtonText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 13,
+    fontSize: 14,
   },
   // オーバーレイ共通
   overlayContainer: {
