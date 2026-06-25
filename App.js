@@ -88,6 +88,10 @@ if (isWeb && typeof document !== 'undefined') {
 
 export default function App() {
   // --- 状態管理 ---
+  const [petName, setPetName] = useState(''); // あもれもんの名前
+  const [isNamed, setIsNamed] = useState(false); // 名前が登録されたかのフラグ
+  const [nameInput, setNameInput] = useState(''); // 命名画面での入力テキスト
+
   const [hunger, setHunger] = useState(80); // お腹すき度 (0 - 100, 100が満腹)
   const [affection, setAffection] = useState(50); // なつき度 (0 - 100, 非表示)
   const [tokens, setTokens] = useState(8); // 行動権トークン (最大10)
@@ -95,8 +99,8 @@ export default function App() {
   const [inputText, setInputText] = useState(''); // チャット入力
   
   // 吹き出しの状態
-  const [bubbleText, setBubbleText] = useState('ピピ！ぼくは「あもれもん」！これからよろしくね！');
-  const [bubbleVisible, setBubbleVisible] = useState(true);
+  const [bubbleText, setBubbleText] = useState('');
+  const [bubbleVisible, setBubbleVisible] = useState(false);
   
   // 進化状態
   const [evolution, setEvolution] = useState('normal'); // normal, angel, devil
@@ -117,9 +121,6 @@ export default function App() {
 
   // --- タイマーとアニメーションのセットアップ ---
   useEffect(() => {
-    // 初期起動時の吹き出し自動消去タイマーを設定
-    startBubbleTimer();
-
     if (isWeb) return;
 
     // 1. 浮遊と呼吸アニメーション (スマホアプリ用)
@@ -174,6 +175,7 @@ export default function App() {
 
   // 2. トークン自動回復タイマー (tokensが10未満の時のみ毎秒カウントダウン)
   useEffect(() => {
+    if (!isNamed) return; // 命名されるまではタイマーを走らせない
     if (tokens >= 10) {
       setNextRecoverySec(15);
       return;
@@ -190,15 +192,15 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [tokens]);
+  }, [tokens, isNamed]);
 
   // 3. お腹が徐々に空くタイマー (25秒ごとにお腹度-5)
   useEffect(() => {
+    if (!isNamed) return; // 命名されるまではお腹は減らない
     const hungerInterval = setInterval(() => {
       setHunger((prev) => {
         const nextHunger = Math.max(0, prev - 5);
         if (nextHunger <= 0) {
-          // お腹が完全に空くとケアスコアが下がる
           setCareScore((score) => Math.max(0, score - 8));
         }
         return nextHunger;
@@ -206,7 +208,7 @@ export default function App() {
     }, 25000);
 
     return () => clearInterval(hungerInterval);
-  }, []);
+  }, [isNamed]);
 
   // --- ペットの表情・色の判定 ---
   useEffect(() => {
@@ -229,13 +231,14 @@ export default function App() {
     }
     setBubbleText(text);
     setBubbleVisible(true);
-    startBubbleTimer();
-  };
-
-  const startBubbleTimer = () => {
     bubbleTimerRef.current = setTimeout(() => {
       setBubbleVisible(false);
     }, 6000); // 6秒間表示
+  };
+
+  // --- セリフ内の名前自動置換 ---
+  const formatReply = (text) => {
+    return text.replace(/あもれもん/g, petName || 'あもれもん');
   };
 
   // --- アクションカウンターと進化チェック (合計5回アクションで進化) ---
@@ -250,10 +253,10 @@ export default function App() {
       setTimeout(() => {
         if (currentCareScore >= 55) {
           setEvolution('angel');
-          triggerBubble('ピピ…！なんだか体がキラキラ光るよ…！【エンジェルあもれもん】に進化した！👼');
+          triggerBubble(`ピピ…！なんだか体がキラキラ光るよ…！【エンジェル${petName}】に進化した！👼`);
         } else {
           setEvolution('devil');
-          triggerBubble('ピピピッ！背中がムズムズする…！【デビルあもれもん】に進化した！😈');
+          triggerBubble(`ピピピッ！背中がムズムズする…！【デビル${petName}】に進化した！😈`);
         }
         setPetEmotion('happy');
         // 進化したらステータスを少し回復
@@ -261,6 +264,34 @@ export default function App() {
         setAffection(80);
       }, 1500);
     }
+  };
+
+  // --- アクション処理: 命名する ---
+  const handleRegisterName = () => {
+    if (!nameInput.trim()) return;
+    const name = nameInput.trim();
+    setPetName(name);
+    setIsNamed(true);
+    setPetEmotion('happy');
+
+    // 決定時のバウンド演出
+    if (isWeb) {
+      setIsBouncing(true);
+      setTimeout(() => {
+        setIsBouncing(false);
+        setPetEmotion('normal');
+      }, 800);
+    } else {
+      Animated.sequence([
+        Animated.timing(bounceAnim, { toValue: -30, duration: 150, useNativeDriver: true }),
+        Animated.timing(bounceAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
+      ]).start(() => setPetEmotion('normal'));
+    }
+
+    // 命名完了の吹き出しをポップアップ
+    setTimeout(() => {
+      triggerBubble(`ピピ！今日からぼくの名前は「${name}」だね！いっぱいお世話してね！❤️`);
+    }, 200);
   };
 
   // --- アクション処理: エサをあげる ---
@@ -281,7 +312,6 @@ export default function App() {
     setPetEmotion('eating');
 
     if (isWeb) {
-      // Web用のバウンドクラス起動
       setIsBouncing(true);
       setTimeout(() => {
         setIsBouncing(false);
@@ -289,7 +319,6 @@ export default function App() {
         setTimeout(() => setPetEmotion('normal'), 2000);
       }, 800);
     } else {
-      // スマホアプリ用のバウンドアニメーション (GPU駆動)
       Animated.sequence([
         Animated.timing(bounceAnim, { toValue: -30, duration: 150, useNativeDriver: true }),
         Animated.timing(bounceAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
@@ -303,7 +332,7 @@ export default function App() {
 
     const foodReplies = AI_RESPONSES.foods;
     const reply = foodReplies[Math.floor(Math.random() * foodReplies.length)];
-    triggerBubble(reply);
+    triggerBubble(formatReply(reply));
 
     // 進化チェック
     checkEvolution(actionCount, nextCareScore);
@@ -367,7 +396,7 @@ export default function App() {
         }
       }
 
-      triggerBubble(reply);
+      triggerBubble(formatReply(reply));
       
       setTimeout(() => setPetEmotion('normal'), 2500);
     }, 600);
@@ -422,184 +451,246 @@ export default function App() {
   return (
     <View style={styles.container}>
       <View style={styles.phoneFrame}>
-        {/* ヘッダーエリア */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.headerTitle}>AMOREMON</Text>
-            <View style={styles.badgeContainer}>
-              <Text style={styles.badgeText}>
-                {evolution === 'normal' ? 'ベイビー期' : evolution === 'angel' ? 'エンジェル期 👼' : 'デビル期 😈'}
-              </Text>
+        {/* 名前が決まっていない場合は「命名ウェルカム画面」を表示 */}
+        {!isNamed ? (
+          <View style={styles.namingContainer}>
+            {/* ヘッダー風の飾り */}
+            <View style={styles.namingHeader}>
+              <Text style={styles.headerTitle}>AMOREMON</Text>
             </View>
-          </View>
-          <View style={styles.tokenContainer}>
-            <Text style={styles.tokenLabel}>⚡ {tokens}/10</Text>
-            {tokens < 10 && (
-              <Text style={styles.timerText}>+{nextRecoverySec}s</Text>
-            )}
-          </View>
-        </View>
 
-        {/* メインあもれもん描画エリア (キャンバス) */}
-        <View style={styles.petCanvas}>
-          
-          {/* あもれもんの吹き出し (Speech Bubble) */}
-          {bubbleVisible && (
-            <View style={styles.bubbleWrapper} className={isWeb ? 'web-bubble' : ''}>
-              <View style={styles.speechBubble}>
-                <Text style={styles.bubbleTextContent}>{bubbleText}</Text>
-                <View style={styles.bubbleArrow} />
-              </View>
-            </View>
-          )}
-
-          <Animated.View
-            style={[
-              styles.petWrapper,
-              getFloatingStyle(),
-            ]}
-            className={
-              isWeb
-                ? `web-floating web-breathing ${isBouncing ? 'web-bouncing' : ''}`
-                : ''
-            }
-          >
-            {/* エンジェル形態時の「天使の輪」 */}
-            {evolution === 'angel' && (
-              <View style={styles.angelHalo} className={isWeb ? 'web-halo' : ''} />
-            )}
-
-            {/* デビル形態時の「ツノ」 */}
-            {evolution === 'devil' && (
-              <View style={styles.devilHornsContainer} className={isWeb ? 'web-devil' : ''}>
-                <View style={[styles.devilHorn, styles.devilHornLeft]} />
-                <View style={[styles.devilHorn, styles.devilHornRight]} />
-              </View>
-            )}
-
-            {/* あもれもんの影 */}
-            <View style={styles.petShadow} />
-
-            {/* あもれもん本体 (グラデーション風の球体) */}
-            <View
-              style={[
-                styles.petBody,
-                {
-                  backgroundColor: petColors[0],
-                  shadowColor: petColors[1],
-                },
-              ]}
-            >
-              {/* あもれもんの表情 */}
-              <View style={styles.face}>
-                {petEmotion === 'normal' && (
-                  <>
+            {/* 中央のあもれもん（ベイビー形態） */}
+            <View style={styles.namingPetArea}>
+              <Animated.View
+                style={[styles.petWrapper, getFloatingStyle()]}
+                className={isWeb ? 'web-floating web-breathing' : ''}
+              >
+                <View style={styles.petShadow} />
+                <View style={[styles.petBody, { backgroundColor: '#a18cd1', shadowColor: '#e0c3fc' }]}>
+                  <View style={styles.face}>
                     <View style={styles.eyeRow}>
                       <View style={styles.eye}><View style={styles.pupil} /></View>
                       <View style={styles.eye}><View style={styles.pupil} /></View>
                     </View>
                     <Text style={styles.mouth}>◡</Text>
-                  </>
-                )}
-                {petEmotion === 'happy' && (
-                  <>
-                    <View style={styles.eyeRow}>
-                      <Text style={styles.eyeEmoji}>^</Text>
-                      <Text style={styles.eyeEmoji}>^</Text>
-                    </View>
-                    <Text style={styles.mouthHappy}>❤️</Text>
-                  </>
-                )}
-                {petEmotion === 'sad' && (
-                  <>
-                    <View style={styles.eyeRow}>
-                      <Text style={styles.eyeEmoji}>T</Text>
-                      <Text style={styles.eyeEmoji}>T</Text>
-                    </View>
-                    <Text style={styles.mouth}>⌢</Text>
-                  </>
-                )}
-                {petEmotion === 'eating' && (
-                  <>
-                    <View style={styles.eyeRow}>
-                      <Text style={styles.eyeEmoji}>&gt;</Text>
-                      <Text style={styles.eyeEmoji}>&lt;</Text>
-                    </View>
-                    <Text style={styles.mouthEating}>⬡</Text>
-                  </>
-                )}
-              </View>
-
-              {/* チーク(頬紅) */}
-              <View style={styles.cheekRow}>
-                <View style={styles.cheek} />
-                <View style={styles.cheek} />
-              </View>
+                  </View>
+                  <View style={styles.cheekRow}>
+                    <View style={styles.cheek} />
+                    <View style={styles.cheek} />
+                  </View>
+                </View>
+              </Animated.View>
             </View>
-          </Animated.View>
-        </View>
 
-        {/* ステータスバーエリア（お腹のみ表示、なつき度は裏パラへ） */}
-        <View style={styles.statusSection}>
-          <View style={styles.statusRow}>
-            <Text style={styles.statusLabel}>🍖 エネルギー</Text>
-            <View style={styles.progressBarBg}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  {
-                    width: `${hunger}%`,
-                    backgroundColor: hunger < 30 ? '#ff4d4d' : '#00e676',
-                  },
-                ]}
+            {/* 命名フォームカード */}
+            <View style={styles.namingCard}>
+              <Text style={styles.namingTitle}>あもれもんに名前をつけてね！</Text>
+              <Text style={styles.namingSubtitle}>今日からあなたの大切なパートナーになります。</Text>
+              
+              <TextInput
+                style={styles.namingInput}
+                placeholder="名前を入力してください..."
+                placeholderTextColor="#7f8c8d"
+                value={nameInput}
+                onChangeText={setNameInput}
+                maxLength={10}
+                onSubmitEditing={handleRegisterName}
               />
+              
+              <TouchableOpacity
+                style={[
+                  styles.namingButton,
+                  !nameInput.trim() && styles.namingButtonDisabled
+                ]}
+                onPress={handleRegisterName}
+                disabled={!nameInput.trim()}
+              >
+                <Text style={styles.namingButtonText}>あもれもんを呼び出す ✨</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.statusVal}>{hunger}%</Text>
           </View>
-        </View>
+        ) : (
+          /* 名前が決まっている場合は通常の「育成画面」を表示 */
+          <>
+            {/* ヘッダーエリア */}
+            <View style={styles.header}>
+              <View>
+                <Text style={styles.headerTitle}>{petName.toUpperCase()}</Text>
+                <View style={styles.badgeContainer}>
+                  <Text style={styles.badgeText}>
+                    {evolution === 'normal' ? 'ベイビー期' : evolution === 'angel' ? 'エンジェル期 👼' : 'デビル期 😈'}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.tokenContainer}>
+                <Text style={styles.tokenLabel}>⚡ {tokens}/10</Text>
+                {tokens < 10 && (
+                  <Text style={styles.timerText}>+{nextRecoverySec}s</Text>
+                )}
+              </View>
+            </View>
 
-        {/* 中央の広々としたあもれもんの観察空間 */}
-        <View style={styles.observationArea}>
-          <Text style={styles.observationHint}>
-            {evolution === 'normal'
-              ? 'お世話をすると、あもれもんが進化するよ。どんな姿になるかな？'
-              : 'あもれもんのお世話を続けよう。会話の内容が変化しているよ。'}
-          </Text>
-        </View>
+            {/* メインあもれもん描画エリア */}
+            <View style={styles.petCanvas}>
+              {/* 吹き出し (Speech Bubble) */}
+              {bubbleVisible && (
+                <View style={styles.bubbleWrapper} className={isWeb ? 'web-bubble' : ''}>
+                  <View style={styles.speechBubble}>
+                    <Text style={styles.bubbleTextContent}>{bubbleText}</Text>
+                    <View style={styles.bubbleArrow} />
+                  </View>
+                </View>
+              )}
 
-        {/* 入力・操作アクションエリア */}
-        <View style={styles.inputArea}>
-          <View style={styles.chatInputRow}>
-            <TextInput
-              style={styles.textInput}
-              placeholder="あもれもんに話しかけてみよう..."
-              placeholderTextColor="#7f8c8d"
-              value={inputText}
-              onChangeText={setInputText}
-              onSubmitEditing={handleSendMessage}
-            />
-            <TouchableOpacity style={styles.sendButton} onPress={handleSendMessage}>
-              <Text style={styles.sendButtonText}>送信</Text>
-            </TouchableOpacity>
-          </View>
+              <Animated.View
+                style={[
+                  styles.petWrapper,
+                  getFloatingStyle(),
+                ]}
+                className={
+                  isWeb
+                    ? `web-floating web-breathing ${isBouncing ? 'web-bouncing' : ''}`
+                    : ''
+                }
+              >
+                {/* エンジェル形態時の「天使の輪」 */}
+                {evolution === 'angel' && (
+                  <View style={styles.angelHalo} className={isWeb ? 'web-halo' : ''} />
+                )}
 
-          <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.actionButton} onPress={handleFeed}>
-              <Text style={styles.actionIcon}>🍖</Text>
-              <Text style={styles.actionLabel}>エサやり</Text>
-              <Text style={styles.actionCost}>⚡1消費</Text>
-            </TouchableOpacity>
+                {/* デビル形態時の「ツノ」 */}
+                {evolution === 'devil' && (
+                  <View style={styles.devilHornsContainer} className={isWeb ? 'web-devil' : ''}>
+                    <View style={[styles.devilHorn, styles.devilHornLeft]} />
+                    <View style={[styles.devilHorn, styles.devilHornRight]} />
+                  </View>
+                )}
 
-            <TouchableOpacity
-              style={[styles.actionButton, styles.recoveryButton]}
-              onPress={handleRecoverTokens}
-            >
-              <Text style={styles.actionIcon}>⚡</Text>
-              <Text style={styles.actionLabel}>広告で回復</Text>
-              <Text style={styles.actionCost}>全回復</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+                {/* あもれもんの影 */}
+                <View style={styles.petShadow} />
+
+                {/* あもれもん本体 */}
+                <View
+                  style={[
+                    styles.petBody,
+                    {
+                      backgroundColor: petColors[0],
+                      shadowColor: petColors[1],
+                    },
+                  ]}
+                >
+                  {/* あもれもんの表情 */}
+                  <View style={styles.face}>
+                    {petEmotion === 'normal' && (
+                      <>
+                        <View style={styles.eyeRow}>
+                          <View style={styles.eye}><View style={styles.pupil} /></View>
+                          <View style={styles.eye}><View style={styles.pupil} /></View>
+                        </View>
+                        <Text style={styles.mouth}>◡</Text>
+                      </>
+                    )}
+                    {petEmotion === 'happy' && (
+                      <>
+                        <View style={styles.eyeRow}>
+                          <Text style={styles.eyeEmoji}>^</Text>
+                          <Text style={styles.eyeEmoji}>^</Text>
+                        </View>
+                        <Text style={styles.mouthHappy}>❤️</Text>
+                      </>
+                    )}
+                    {petEmotion === 'sad' && (
+                      <>
+                        <View style={styles.eyeRow}>
+                          <Text style={styles.eyeEmoji}>T</Text>
+                          <Text style={styles.eyeEmoji}>T</Text>
+                        </View>
+                        <Text style={styles.mouth}>⌢</Text>
+                      </>
+                    )}
+                    {petEmotion === 'eating' && (
+                      <>
+                        <View style={styles.eyeRow}>
+                          <Text style={styles.eyeEmoji}>&gt;</Text>
+                          <Text style={styles.eyeEmoji}>&lt;</Text>
+                        </View>
+                        <Text style={styles.mouthEating}>⬡</Text>
+                      </>
+                    )}
+                  </View>
+
+                  {/* チーク(頬紅) */}
+                  <View style={styles.cheekRow}>
+                    <View style={styles.cheek} />
+                    <View style={styles.cheek} />
+                  </View>
+                </View>
+              </Animated.View>
+            </View>
+
+            {/* ステータスバーエリア */}
+            <View style={styles.statusSection}>
+              <View style={styles.statusRow}>
+                <Text style={styles.statusLabel}>🍖 エネルギー</Text>
+                <View style={styles.progressBarBg}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      {
+                        width: `${hunger}%`,
+                        backgroundColor: hunger < 30 ? '#ff4d4d' : '#00e676',
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.statusVal}>{hunger}%</Text>
+              </View>
+            </View>
+
+            {/* 中央の広々とした観察空間 */}
+            <View style={styles.observationArea}>
+              <Text style={styles.observationHint}>
+                {evolution === 'normal'
+                  ? `お世話をすると、${petName}が進化するよ。どんな姿になるかな？`
+                  : `${petName}のお世話を続けよう。会話の内容が変化しているよ。`}
+              </Text>
+            </View>
+
+            {/* 入力・操作アクションエリア */}
+            <View style={styles.inputArea}>
+              <View style={styles.chatInputRow}>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder={`${petName}に話しかけてみよう...`}
+                  placeholderTextColor="#7f8c8d"
+                  value={inputText}
+                  onChangeText={setInputText}
+                  onSubmitEditing={handleSendMessage}
+                />
+                <TouchableOpacity style={styles.sendButton} onPress={handleSendMessage}>
+                  <Text style={styles.sendButtonText}>送信</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.actionRow}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleFeed}>
+                  <Text style={styles.actionIcon}>🍖</Text>
+                  <Text style={styles.actionLabel}>エサやり</Text>
+                  <Text style={styles.actionCost}>⚡1消費</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.recoveryButton]}
+                  onPress={handleRecoverTokens}
+                >
+                  <Text style={styles.actionIcon}>⚡</Text>
+                  <Text style={styles.actionLabel}>広告で回復</Text>
+                  <Text style={styles.actionCost}>全回復</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
+        )}
       </View>
       <StatusBar style="light" />
     </View>
@@ -630,6 +721,82 @@ const styles = StyleSheet.create({
     display: 'flex',
     flexDirection: 'column',
   },
+  // 命名画面のスタイル
+  namingContainer: {
+    flex: 1,
+    backgroundColor: '#0a0f2d',
+    justifyContent: 'space-between',
+    paddingBottom: 40,
+  },
+  namingHeader: {
+    paddingTop: Platform.OS === 'ios' ? 60 : 36,
+    alignItems: 'center',
+  },
+  namingPetArea: {
+    height: 220,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  namingCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.65)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 127, 0.25)',
+    borderRadius: 24,
+    padding: 24,
+    marginHorizontal: 20,
+    backdropFilter: 'blur(10px)',
+    shadowColor: '#ff007f',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
+  },
+  namingTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  namingSubtitle: {
+    color: '#94a3b8',
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+  namingInput: {
+    backgroundColor: '#1f2937',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    color: '#fff',
+    fontSize: 15,
+    height: 48,
+    borderWidth: 1,
+    borderColor: '#374151',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  namingButton: {
+    backgroundColor: '#ff007f',
+    borderRadius: 16,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#ff007f',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  namingButtonDisabled: {
+    backgroundColor: '#475569',
+    shadowOpacity: 0,
+  },
+  namingButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  // 育成画面のスタイル
   header: {
     paddingTop: Platform.OS === 'ios' ? 50 : 24,
     paddingHorizontal: 20,
