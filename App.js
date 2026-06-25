@@ -9,6 +9,7 @@ import {
   Animated,
   Dimensions,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 
 const { width } = Dimensions.get('window');
@@ -17,7 +18,6 @@ const isWeb = Platform.OS === 'web';
 // 簡易AI応答データベース（キーワード対応＆ランダム返答）
 const AI_RESPONSES = {
   greetings: ['ピピ！こんにちは！今日もよろしくね！', 'ピュイ！起きてたよ！お話ししよう！', 'クーン、なでなでして〜！'],
-  foods: ['モグモグ…！おいしい！あもーれ！', 'パクパク！これ大好きなんだ！', 'ピピ！お腹いっぱいになってきた！'],
   happy: ['ウキウキするなぁ！', 'あなたといると、とっても幸せ！', 'ピュイピュイ！ダンスしちゃう！'],
   sad: ['ちょっと寂しいな…', 'お腹がすくと力が出ないよぅ', 'ピピ…もっとかまってほしいな'],
   default: [
@@ -28,7 +28,7 @@ const AI_RESPONSES = {
   ],
 };
 
-// Web用のCSSアニメーション定義 (ブラウザの負荷をほぼゼロにして滑らかに動かします)
+// Web用のCSSアニメーション定義
 const webStyles = `
   @keyframes float {
     0% { transform: translateY(0px); }
@@ -58,6 +58,14 @@ const webStyles = `
     0% { opacity: 0; transform: scale(0.8) translateY(10px); }
     100% { opacity: 1; transform: scale(1) translateY(0); }
   }
+  @keyframes slide-up {
+    0% { transform: translateY(100%); }
+    100% { transform: translateY(0); }
+  }
+  @keyframes fade-in {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
   .web-floating {
     animation: float 4s ease-in-out infinite;
   }
@@ -76,9 +84,14 @@ const webStyles = `
   .web-bubble {
     animation: bubble-in 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
   }
+  .web-slide-up {
+    animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .web-fade-in {
+    animation: fade-in 0.25s ease-out forwards;
+  }
 `;
 
-// Web環境の場合のみ、マウント前に一度だけドキュメントのheadにスタイルを注入
 if (isWeb && typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.type = 'text/css';
@@ -92,10 +105,10 @@ export default function App() {
   const [isNamed, setIsNamed] = useState(false); // 名前が登録されたかのフラグ
   const [nameInput, setNameInput] = useState(''); // 命名画面での入力テキスト
 
-  const [hunger, setHunger] = useState(80); // お腹すき度 (0 - 100, 100が満腹)
+  const [hunger, setHunger] = useState(80); // お腹すき度 (0 - 100, 非表示)
   const [affection, setAffection] = useState(50); // なつき度 (0 - 100, 非表示)
-  const [tokens, setTokens] = useState(8); // 行動権トークン (最大10)
-  const [nextRecoverySec, setNextRecoverySec] = useState(15); // トークン回復までの時間 (秒)
+  const [tokens, setTokens] = useState(8); // 行動権トークン (最大10, 非表示)
+  const [nextRecoverySec, setNextRecoverySec] = useState(15); // トークン回復時間 (秒, 非表示)
   const [inputText, setInputText] = useState(''); // チャット入力
   
   // 吹き出しの状態
@@ -104,66 +117,45 @@ export default function App() {
   
   // 進化状態
   const [evolution, setEvolution] = useState('normal'); // normal, angel, devil
-  const [actionCount, setActionCount] = useState(0); // 進化のためのアクション回数カウンター
+  const [actionCount, setActionCount] = useState(0); // アクションカウンター
 
-  const [petEmotion, setPetEmotion] = useState('normal'); // 感情: normal, happy, sad, eating
+  // メニュー・ポップアップ（モーダル）の状態
+  const [isMenuVisible, setIsMenuVisible] = useState(false); // お世話メニューの表示
+  const [isModalVisible, setIsModalVisible] = useState(false); // 回復ポップアップの表示
+  const [isAdLoading, setIsAdLoading] = useState(false); // 動画広告読み込み中アニメーションフラグ
+  const [purchaseStatus, setPurchaseStatus] = useState(''); // 課金処理のステータスメッセージ
+
+  const [petEmotion, setPetEmotion] = useState('normal'); // 感情
   const [careScore, setCareScore] = useState(50); // お世話スコア
-  const [isBouncing, setIsBouncing] = useState(false); // エサやりのバウンド状態 (Web用)
+  const [isBouncing, setIsBouncing] = useState(false); // バウンド状態 (Web用)
 
-  // --- アニメーション参照 (スマートフォンアプリ専用) ---
+  // --- アニメーション参照 ---
   const floatAnim = useRef(new Animated.Value(0)).current;
   const scaleXAnim = useRef(new Animated.Value(1)).current;
   const scaleYAnim = useRef(new Animated.Value(1)).current;
   const bounceAnim = useRef(new Animated.Value(0)).current;
-  
-  // 吹き出し消去タイマーの参照
   const bubbleTimerRef = useRef(null);
 
   // --- タイマーとアニメーションのセットアップ ---
   useEffect(() => {
     if (isWeb) return;
 
-    // 1. 浮遊と呼吸アニメーション (スマホアプリ用)
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim, {
-          toValue: -15,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(floatAnim, {
-          toValue: 0,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
+        Animated.timing(floatAnim, { toValue: -15, duration: 2000, useNativeDriver: true }),
+        Animated.timing(floatAnim, { toValue: 0, duration: 2000, useNativeDriver: true }),
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
         Animated.parallel([
-          Animated.timing(scaleXAnim, {
-            toValue: 1.05,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(scaleYAnim, {
-            toValue: 0.95,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
+          Animated.timing(scaleXAnim, { toValue: 1.05, duration: 2000, useNativeDriver: true }),
+          Animated.timing(scaleYAnim, { toValue: 0.95, duration: 2000, useNativeDriver: true }),
         ]),
         Animated.parallel([
-          Animated.timing(scaleXAnim, {
-            toValue: 1,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(scaleYAnim, {
-            toValue: 1,
-            duration: 2000,
-            useNativeDriver: true,
-          }),
+          Animated.timing(scaleXAnim, { toValue: 1, duration: 2000, useNativeDriver: true }),
+          Animated.timing(scaleYAnim, { toValue: 1, duration: 2000, useNativeDriver: true }),
         ]),
       ])
     ).start();
@@ -173,9 +165,9 @@ export default function App() {
     };
   }, []);
 
-  // 2. トークン自動回復タイマー (tokensが10未満の時のみ毎秒カウントダウン)
+  // 2. トークン自動回復タイマー
   useEffect(() => {
-    if (!isNamed) return; // 命名されるまではタイマーを走らせない
+    if (!isNamed) return;
     if (tokens >= 10) {
       setNextRecoverySec(15);
       return;
@@ -185,7 +177,7 @@ export default function App() {
       setNextRecoverySec((prevSec) => {
         if (prevSec <= 1) {
           setTokens((t) => Math.min(10, t + 1));
-          return 15; // 15秒にリセット
+          return 15;
         }
         return prevSec - 1;
       });
@@ -196,7 +188,7 @@ export default function App() {
 
   // 3. お腹が徐々に空くタイマー (25秒ごとにお腹度-5)
   useEffect(() => {
-    if (!isNamed) return; // 命名されるまではお腹は減らない
+    if (!isNamed) return;
     const hungerInterval = setInterval(() => {
       setHunger((prev) => {
         const nextHunger = Math.max(0, prev - 5);
@@ -223,9 +215,8 @@ export default function App() {
     }
   }, [hunger, affection, petEmotion]);
 
-  // --- 吹き出し表示＆自動消去ロジック (6秒) ---
+  // --- 吹き出し表示＆自動消去 (6秒) ---
   const triggerBubble = (text) => {
-    // 既存のタイマーをクリア
     if (bubbleTimerRef.current) {
       clearTimeout(bubbleTimerRef.current);
     }
@@ -233,23 +224,21 @@ export default function App() {
     setBubbleVisible(true);
     bubbleTimerRef.current = setTimeout(() => {
       setBubbleVisible(false);
-    }, 6000); // 6秒間表示
+    }, 6000);
   };
 
-  // --- セリフ内の名前自動置換 ---
   const formatReply = (text) => {
     return text.replace(/あもれもん/g, petName || 'あもれもん');
   };
 
-  // --- アクションカウンターと進化チェック (合計5回アクションで進化) ---
+  // --- アクションカウンターと進化チェック (合計5回お世話で進化) ---
   const checkEvolution = (currentActionCount, currentCareScore) => {
-    if (evolution !== 'normal') return; // すでに進化している場合はスキップ
+    if (evolution !== 'normal') return;
 
     const nextCount = currentActionCount + 1;
     setActionCount(nextCount);
 
     if (nextCount >= 5) {
-      // 5回目のアクションで進化決定
       setTimeout(() => {
         if (currentCareScore >= 55) {
           setEvolution('angel');
@@ -259,7 +248,6 @@ export default function App() {
           triggerBubble(`ピピピッ！背中がムズムズする…！【デビル${petName}】に進化した！😈`);
         }
         setPetEmotion('happy');
-        // 進化したらステータスを少し回復
         setHunger(100);
         setAffection(80);
       }, 1500);
@@ -274,7 +262,6 @@ export default function App() {
     setIsNamed(true);
     setPetEmotion('happy');
 
-    // 決定時のバウンド演出
     if (isWeb) {
       setIsBouncing(true);
       setTimeout(() => {
@@ -288,23 +275,21 @@ export default function App() {
       ]).start(() => setPetEmotion('normal'));
     }
 
-    // 命名完了の吹き出しをポップアップ
     setTimeout(() => {
-      triggerBubble(`ピピ！今日からぼくの名前は「${name}」だね！いっぱいお世話してね！❤️`);
+      triggerBubble(`ピピ！今日からぼくの名前は「${name}」だね！いっぱい遊んでね！❤️`);
     }, 200);
   };
 
-  // --- アクション処理: エサをあげる ---
-  const handleFeed = () => {
+  // --- アクション：お食事を与える ---
+  const performFeed = () => {
+    setIsMenuVisible(false);
     if (tokens <= 0) {
-      triggerBubble('⚡ トークンが足りないよぅ。少し待つか、広告を見て回復してね！');
+      setIsModalVisible(true);
       return;
     }
 
     setTokens((prev) => prev - 1);
     setHunger((prev) => Math.min(100, prev + 25));
-    
-    // なつき度とお世話スコアの更新 (画面には表示されない隠し要素)
     setAffection((prev) => Math.min(100, prev + 5));
     const nextCareScore = Math.min(100, careScore + 5);
     setCareScore(nextCareScore);
@@ -330,11 +315,69 @@ export default function App() {
       });
     }
 
-    const foodReplies = AI_RESPONSES.foods;
-    const reply = foodReplies[Math.floor(Math.random() * foodReplies.length)];
-    triggerBubble(formatReply(reply));
+    triggerBubble(formatReply('モグモグ…！おいしい！あもーれ！🍖'));
+    checkEvolution(actionCount, nextCareScore);
+  };
 
-    // 進化チェック
+  // --- アクション：一緒に遊ぶ ---
+  const performPlay = () => {
+    setIsMenuVisible(false);
+    if (tokens <= 0) {
+      setIsModalVisible(true);
+      return;
+    }
+
+    setTokens((prev) => prev - 1);
+    setAffection((prev) => Math.min(100, prev + 12));
+    const nextCareScore = Math.min(100, careScore + 6);
+    setCareScore(nextCareScore);
+
+    setPetEmotion('happy');
+    if (isWeb) {
+      setIsBouncing(true);
+      setTimeout(() => {
+        setIsBouncing(false);
+        setPetEmotion('normal');
+      }, 800);
+    } else {
+      Animated.sequence([
+        Animated.timing(bounceAnim, { toValue: -20, duration: 150, useNativeDriver: true }),
+        Animated.timing(bounceAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
+      ]).start(() => setPetEmotion('normal'));
+    }
+
+    triggerBubble(formatReply('わーい！遊ぶの大好き！ピュイ！🪁'));
+    checkEvolution(actionCount, nextCareScore);
+  };
+
+  // --- アクション：プレゼントをあげる ---
+  const performGift = () => {
+    setIsMenuVisible(false);
+    if (tokens <= 0) {
+      setIsModalVisible(true);
+      return;
+    }
+
+    setTokens((prev) => prev - 1);
+    setAffection((prev) => Math.min(100, prev + 25));
+    const nextCareScore = Math.min(100, careScore + 12);
+    setCareScore(nextCareScore);
+
+    setPetEmotion('happy');
+    if (isWeb) {
+      setIsBouncing(true);
+      setTimeout(() => {
+        setIsBouncing(false);
+        setPetEmotion('normal');
+      }, 800);
+    } else {
+      Animated.sequence([
+        Animated.timing(bounceAnim, { toValue: -35, duration: 150, useNativeDriver: true }),
+        Animated.timing(bounceAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
+      ]).start(() => setPetEmotion('normal'));
+    }
+
+    triggerBubble(formatReply('わぁ…！素敵なプレゼント！とっても嬉しいな！🎁❤️'));
     checkEvolution(actionCount, nextCareScore);
   };
 
@@ -342,7 +385,7 @@ export default function App() {
   const handleSendMessage = () => {
     if (!inputText.trim()) return;
     if (tokens <= 0) {
-      triggerBubble('⚡ トークンが足りないよぅ。');
+      setIsModalVisible(true);
       return;
     }
 
@@ -350,24 +393,19 @@ export default function App() {
     setInputText('');
     setTokens((prev) => prev - 1);
 
-    // 会話によるなつき度とスコアの更新
-    setAffection((prev) => Math.min(100, prev + 12));
-    const nextCareScore = Math.min(100, careScore + 3);
+    setAffection((prev) => Math.min(100, prev + 8));
+    const nextCareScore = Math.min(100, careScore + 2);
     setCareScore(nextCareScore);
 
-    // あもれもんの応答生成
     setTimeout(() => {
       setPetEmotion('happy');
 
       let reply = '';
       const textLower = text.toLowerCase();
       
-      // 進化状態に応じたセリフの分岐
       if (evolution === 'angel') {
         if (textLower.includes('こんにちは') || textLower.includes('おは') || textLower.includes('ハロー')) {
           reply = 'ごきげんよう！私のお手伝いが必要ですか？ふふっ👼';
-        } else if (textLower.includes('お腹') || textLower.includes('ごはん') || textLower.includes('エサ')) {
-          reply = `お腹の具合は【${hunger}%】です。美味しいフルーツが食べたいですわ🍎`;
         } else if (textLower.includes('可愛い') || textLower.includes('すき') || textLower.includes('好き')) {
           reply = '私もあなたのことがとっても愛おしいです！いつも見守っていますね❤️';
         } else {
@@ -376,19 +414,14 @@ export default function App() {
       } else if (evolution === 'devil') {
         if (textLower.includes('こんにちは') || textLower.includes('おは') || textLower.includes('ハロー')) {
           reply = 'ちっ、また話しかけてきたのか？…べ、別に嬉しくなんかないぞ！😈';
-        } else if (textLower.includes('お腹') || textLower.includes('ごはん') || textLower.includes('エサ')) {
-          reply = `お腹？【${hunger}%】だけど。早くうまいもん寄越しなさいよ！`;
         } else if (textLower.includes('可愛い') || textLower.includes('すき') || textLower.includes('好き')) {
           reply = 'な、何言ってるんだよ！からかわないでよね！バカ！///❤️';
         } else {
           reply = 'ふん、暇つぶしに付き合ってやるよ。もっと面白いこと話しなさいよね！';
         }
       } else {
-        // ノーマル形態のセリフ
         if (textLower.includes('こんにちは') || textLower.includes('おは') || textLower.includes('ハロー')) {
           reply = AI_RESPONSES.greetings[Math.floor(Math.random() * AI_RESPONSES.greetings.length)];
-        } else if (textLower.includes('お腹') || textLower.includes('ごはん') || textLower.includes('エサ')) {
-          reply = `ピピ！今のお腹すき具合は【${hunger}%】だよ！${hunger < 50 ? 'お腹すいたなぁ〜' : 'まだ大丈夫！'}`;
         } else if (textLower.includes('可愛い') || textLower.includes('すき') || textLower.includes('好き')) {
           reply = 'えへへ、照れちゃうな！ぼくもあなたが大好き！❤️';
         } else {
@@ -397,46 +430,56 @@ export default function App() {
       }
 
       triggerBubble(formatReply(reply));
-      
       setTimeout(() => setPetEmotion('normal'), 2500);
     }, 600);
 
-    // 進化チェック
     checkEvolution(actionCount, nextCareScore);
   };
 
-  // --- トークン即時回復 ---
-  const handleRecoverTokens = () => {
-    setTokens(10);
-    setNextRecoverySec(15);
-    triggerBubble('⚡ 広告を見てくれてありがとう！トークンが満タンになったよ！');
+  // --- トークン回復処理: 動画広告を見る ---
+  const handleWatchAd = () => {
+    setIsAdLoading(true);
+    setPurchaseStatus('');
+    // 1.5秒のローディング（広告読み込みシミュレーション）
+    setTimeout(() => {
+      setIsAdLoading(false);
+      setTokens(10);
+      setNextRecoverySec(15);
+      setIsModalVisible(false);
+      triggerBubble(`ピピ！いっぱい眠って元気が戻ったよ！ありがとう！⚡`);
+    }, 1500);
   };
 
-  // --- ペットの色・グラデーション決定 ---
+  // --- トークン回復処理: 課金して回復 ---
+  const handlePurchaseTokens = () => {
+    setPurchaseStatus('購入処理中...');
+    setTimeout(() => {
+      setPurchaseStatus('購入が完了しました！');
+      setTimeout(() => {
+        setPurchaseStatus('');
+        setTokens(10);
+        setNextRecoverySec(15);
+        setIsModalVisible(false);
+        triggerBubble(`キュイーン！特別なパワーで満タンになったよ！✨`);
+      }, 1000);
+    }, 1200);
+  };
+
+  // --- あもれもんの色決定 ---
   const getPetColors = () => {
-    if (evolution === 'angel') {
-      return ['#ffe066', '#fbc2eb']; // 天使のゴールド＆ピンク
-    }
-    if (evolution === 'devil') {
-      return ['#9400d3', '#ff007f']; // 悪魔のディープバイオレット＆ホットピンク
-    }
+    if (evolution === 'angel') return ['#ffe066', '#fbc2eb'];
+    if (evolution === 'devil') return ['#9400d3', '#ff007f'];
     
-    // 通常時の感情による色変化
     switch (petEmotion) {
-      case 'happy':
-        return ['#ff758c', '#ff7eb3']; // 嬉しくてピンク
-      case 'sad':
-        return ['#4facfe', '#00f2fe']; // 寂しくてブルー
-      case 'eating':
-        return ['#43e97b', '#38f9d7']; // 元気なグリーン
-      default:
-        return ['#a18cd1', '#e0c3fc']; // 通常のディープパープル
+      case 'happy': return ['#ff758c', '#ff7eb3'];
+      case 'sad': return ['#4facfe', '#00f2fe'];
+      case 'eating': return ['#43e97b', '#38f9d7'];
+      default: return ['#a18cd1', '#e0c3fc'];
     }
   };
 
   const petColors = getPetColors();
 
-  // --- Web用とスマホ用のスタイル・クラス決定 ---
   const getFloatingStyle = () => {
     if (isWeb) return {};
     return {
@@ -454,12 +497,10 @@ export default function App() {
         {/* 名前が決まっていない場合は「命名ウェルカム画面」を表示 */}
         {!isNamed ? (
           <View style={styles.namingContainer}>
-            {/* ヘッダー風の飾り */}
             <View style={styles.namingHeader}>
               <Text style={styles.headerTitle}>AMOREMON</Text>
             </View>
 
-            {/* 中央のあもれもん（ベイビー形態） */}
             <View style={styles.namingPetArea}>
               <Animated.View
                 style={[styles.petWrapper, getFloatingStyle()]}
@@ -482,7 +523,6 @@ export default function App() {
               </Animated.View>
             </View>
 
-            {/* 命名フォームカード */}
             <View style={styles.namingCard}>
               <Text style={styles.namingTitle}>あもれもんに名前をつけてね！</Text>
               <Text style={styles.namingSubtitle}>今日からあなたの大切なパートナーになります。</Text>
@@ -498,10 +538,7 @@ export default function App() {
               />
               
               <TouchableOpacity
-                style={[
-                  styles.namingButton,
-                  !nameInput.trim() && styles.namingButtonDisabled
-                ]}
+                style={[styles.namingButton, !nameInput.trim() && styles.namingButtonDisabled]}
                 onPress={handleRegisterName}
                 disabled={!nameInput.trim()}
               >
@@ -510,24 +547,11 @@ export default function App() {
             </View>
           </View>
         ) : (
-          /* 名前が決まっている場合は通常の「育成画面」を表示 */
+          /* 名前が決まっている場合は極小UIの「育成画面」を表示 */
           <>
-            {/* ヘッダーエリア */}
+            {/* ヘッダーエリア (名前のみ) */}
             <View style={styles.header}>
-              <View>
-                <Text style={styles.headerTitle}>{petName.toUpperCase()}</Text>
-                <View style={styles.badgeContainer}>
-                  <Text style={styles.badgeText}>
-                    {evolution === 'normal' ? 'ベイビー期' : evolution === 'angel' ? 'エンジェル期 👼' : 'デビル期 😈'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.tokenContainer}>
-                <Text style={styles.tokenLabel}>⚡ {tokens}/10</Text>
-                {tokens < 10 && (
-                  <Text style={styles.timerText}>+{nextRecoverySec}s</Text>
-                )}
-              </View>
+              <Text style={styles.headerTitle}>{petName.toUpperCase()}</Text>
             </View>
 
             {/* メインあもれもん描画エリア */}
@@ -543,15 +567,8 @@ export default function App() {
               )}
 
               <Animated.View
-                style={[
-                  styles.petWrapper,
-                  getFloatingStyle(),
-                ]}
-                className={
-                  isWeb
-                    ? `web-floating web-breathing ${isBouncing ? 'web-bouncing' : ''}`
-                    : ''
-                }
+                style={[styles.petWrapper, getFloatingStyle()]}
+                className={isWeb ? `web-floating web-breathing ${isBouncing ? 'web-bouncing' : ''}` : ''}
               >
                 {/* エンジェル形態時の「天使の輪」 */}
                 {evolution === 'angel' && (
@@ -570,16 +587,7 @@ export default function App() {
                 <View style={styles.petShadow} />
 
                 {/* あもれもん本体 */}
-                <View
-                  style={[
-                    styles.petBody,
-                    {
-                      backgroundColor: petColors[0],
-                      shadowColor: petColors[1],
-                    },
-                  ]}
-                >
-                  {/* あもれもんの表情 */}
+                <View style={[styles.petBody, { backgroundColor: petColors[0], shadowColor: petColors[1] }]}>
                   <View style={styles.face}>
                     {petEmotion === 'normal' && (
                       <>
@@ -619,7 +627,6 @@ export default function App() {
                     )}
                   </View>
 
-                  {/* チーク(頬紅) */}
                   <View style={styles.cheekRow}>
                     <View style={styles.cheek} />
                     <View style={styles.cheek} />
@@ -628,33 +635,8 @@ export default function App() {
               </Animated.View>
             </View>
 
-            {/* ステータスバーエリア */}
-            <View style={styles.statusSection}>
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>🍖 エネルギー</Text>
-                <View style={styles.progressBarBg}>
-                  <View
-                    style={[
-                      styles.progressBarFill,
-                      {
-                        width: `${hunger}%`,
-                        backgroundColor: hunger < 30 ? '#ff4d4d' : '#00e676',
-                      },
-                    ]}
-                  />
-                </View>
-                <Text style={styles.statusVal}>{hunger}%</Text>
-              </View>
-            </View>
-
-            {/* 中央の広々とした観察空間 */}
-            <View style={styles.observationArea}>
-              <Text style={styles.observationHint}>
-                {evolution === 'normal'
-                  ? `お世話をすると、${petName}が進化するよ。どんな姿になるかな？`
-                  : `${petName}のお世話を続けよう。会話の内容が変化しているよ。`}
-              </Text>
-            </View>
+            {/* 観察空間 (完全に空白。あもれもんの美しさを際立たせる) */}
+            <View style={styles.observationSpace} />
 
             {/* 入力・操作アクションエリア */}
             <View style={styles.inputArea}>
@@ -670,25 +652,93 @@ export default function App() {
                 <TouchableOpacity style={styles.sendButton} onPress={handleSendMessage}>
                   <Text style={styles.sendButtonText}>送信</Text>
                 </TouchableOpacity>
-              </View>
 
-              <View style={styles.actionRow}>
-                <TouchableOpacity style={styles.actionButton} onPress={handleFeed}>
-                  <Text style={styles.actionIcon}>🍖</Text>
-                  <Text style={styles.actionLabel}>エサやり</Text>
-                  <Text style={styles.actionCost}>⚡1消費</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.recoveryButton]}
-                  onPress={handleRecoverTokens}
-                >
-                  <Text style={styles.actionIcon}>⚡</Text>
-                  <Text style={styles.actionLabel}>広告で回復</Text>
-                  <Text style={styles.actionCost}>全回復</Text>
+                <TouchableOpacity style={styles.careMenuButton} onPress={() => setIsMenuVisible(true)}>
+                  <Text style={styles.careButtonText}>お世話 ✨</Text>
                 </TouchableOpacity>
               </View>
             </View>
+
+            {/* お世話メニュー (ボトムシート風スライドアップ画面) */}
+            {isMenuVisible && (
+              <View style={styles.overlayContainer} className={isWeb ? 'web-fade-in' : ''}>
+                {/* 背景タップで閉じる */}
+                <TouchableOpacity style={styles.overlayBg} activeOpacity={1} onPress={() => setIsMenuVisible(false)} />
+                
+                <View style={styles.bottomSheet} className={isWeb ? 'web-slide-up' : ''}>
+                  <View style={styles.sheetHeader}>
+                    <View style={styles.sheetHandle} />
+                    <Text style={styles.sheetTitle}>{petName}のお世話をする</Text>
+                  </View>
+
+                  <View style={styles.sheetButtonsContainer}>
+                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performFeed}>
+                      <Text style={styles.sheetOptionIcon}>🍖</Text>
+                      <Text style={styles.sheetOptionLabel}>お食事</Text>
+                      <Text style={styles.sheetOptionDesc}>エネルギーが回復します</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performPlay}>
+                      <Text style={styles.sheetOptionIcon}>🪁</Text>
+                      <Text style={styles.sheetOptionLabel}>遊ぶ</Text>
+                      <Text style={styles.sheetOptionDesc}>なつき度が上昇します</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performGift}>
+                      <Text style={styles.sheetOptionIcon}>🎁</Text>
+                      <Text style={styles.sheetOptionLabel}>プレゼント</Text>
+                      <Text style={styles.sheetOptionDesc}>なつき度が大幅に上昇します</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setIsMenuVisible(false)}>
+                    <Text style={styles.sheetCloseText}>キャンセル</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* 回復ポップアップ (トークン不足時のモーダル画面) */}
+            {isModalVisible && (
+              <View style={styles.overlayContainer} className={isWeb ? 'web-fade-in' : ''}>
+                <View style={styles.overlayBg} />
+                
+                <View style={styles.modalCard}>
+                  {isAdLoading ? (
+                    /* 動画ロード中の表示 */
+                    <View style={styles.modalLoadingArea}>
+                      <ActivityIndicator size="large" color="#ff007f" />
+                      <Text style={styles.modalLoadingText}>あもれもんの夢を読み込み中... 💤</Text>
+                    </View>
+                  ) : (
+                    /* 通常の回復選択肢 */
+                    <>
+                      <Text style={styles.modalTitle}>{petName}がおねむです 😴</Text>
+                      <Text style={styles.modalSubtitle}>
+                        アクションを起こすエネルギー（トークン）が空っぽになってしまいました。
+                        ゆっくり休ませてあげるか、回復してあげましょう。
+                      </Text>
+
+                      {purchaseStatus ? (
+                        <Text style={styles.purchaseStatusText}>{purchaseStatus}</Text>
+                      ) : null}
+
+                      <TouchableOpacity style={styles.modalOptionButton} onPress={handleWatchAd}>
+                        <Text style={styles.modalOptionText}>📽️ 動画を見て全回復（無料）</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity style={[styles.modalOptionButton, styles.modalPayButton]} onPress={handlePurchaseTokens}>
+                        <Text style={styles.modalOptionText}>🪙 120円で即時全回復</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity style={styles.modalCloseButton} onPress={() => setIsModalVisible(false)}>
+                        <Text style={styles.modalCloseText}>閉じる</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              </View>
+            )}
           </>
         )}
       </View>
@@ -720,8 +770,9 @@ const styles = StyleSheet.create({
     elevation: 5,
     display: 'flex',
     flexDirection: 'column',
+    position: 'relative',
   },
-  // 命名画面のスタイル
+  // 命名画面
   namingContainer: {
     flex: 1,
     backgroundColor: '#0a0f2d',
@@ -745,10 +796,6 @@ const styles = StyleSheet.create({
     padding: 24,
     marginHorizontal: 20,
     backdropFilter: 'blur(10px)',
-    shadowColor: '#ff007f',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 15,
   },
   namingTitle: {
     color: '#fff',
@@ -782,21 +829,16 @@ const styles = StyleSheet.create({
     height: 48,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#ff007f',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
   },
   namingButtonDisabled: {
     backgroundColor: '#475569',
-    shadowOpacity: 0,
   },
   namingButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 14,
   },
-  // 育成画面のスタイル
+  // 育成画面
   header: {
     paddingTop: Platform.OS === 'ios' ? 50 : 24,
     paddingHorizontal: 20,
@@ -804,59 +846,29 @@ const styles = StyleSheet.create({
     backgroundColor: '#111827',
     borderBottomWidth: 1,
     borderBottomColor: '#1f2937',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
     color: '#ff007f',
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    letterSpacing: 1.5,
+    letterSpacing: 2.0,
     textShadowColor: 'rgba(255, 0, 127, 0.4)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 6,
   },
-  badgeContainer: {
-    backgroundColor: '#1f2937',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    marginTop: 4,
-    alignSelf: 'flex-start',
-  },
-  badgeText: {
-    color: '#a1a1aa',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  tokenContainer: {
-    alignItems: 'flex-end',
-  },
-  tokenLabel: {
-    color: '#ffdf00',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textShadowColor: 'rgba(255, 223, 0, 0.4)',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 6,
-  },
-  timerText: {
-    color: '#9ca3af',
-    fontSize: 10,
-    marginTop: 2,
-  },
   petCanvas: {
-    height: 330,
+    height: 380,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
     backgroundColor: '#0a0f2d',
-    paddingTop: 40,
+    paddingTop: 45,
   },
   bubbleWrapper: {
     position: 'absolute',
-    top: 25,
+    top: 30,
     zIndex: 10,
     width: '85%',
     alignItems: 'center',
@@ -946,11 +958,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
     shadowRadius: 15,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   petShadow: {
     position: 'absolute',
@@ -1019,52 +1031,9 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: 'rgba(255, 50, 120, 0.4)',
   },
-  statusSection: {
-    padding: 16,
-    backgroundColor: '#111827',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1f2937',
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusLabel: {
-    color: '#e5e7eb',
-    fontSize: 12,
-    width: 90,
-    fontWeight: '600',
-  },
-  progressBarBg: {
-    flex: 1,
-    height: 10,
-    backgroundColor: '#374151',
-    borderRadius: 5,
-    overflow: 'hidden',
-    marginHorizontal: 10,
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 5,
-  },
-  statusVal: {
-    color: '#9ca3af',
-    fontSize: 12,
-    width: 32,
-    textAlign: 'right',
-  },
-  observationArea: {
+  observationSpace: {
     flex: 1,
     backgroundColor: '#0f172a',
-    padding: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  observationHint: {
-    color: '#64748b',
-    fontSize: 12,
-    textAlign: 'center',
-    lineHeight: 18,
   },
   inputArea: {
     padding: 16,
@@ -1074,7 +1043,7 @@ const styles = StyleSheet.create({
   },
   chatInputRow: {
     flexDirection: 'row',
-    marginBottom: 12,
+    alignItems: 'center',
   },
   textInput: {
     flex: 1,
@@ -1092,6 +1061,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    height: 40,
     paddingHorizontal: 18,
     marginLeft: 8,
   },
@@ -1100,36 +1070,187 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 13,
   },
-  actionRow: {
+  careMenuButton: {
+    backgroundColor: '#ff007f',
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 40,
+    paddingHorizontal: 18,
+    marginLeft: 8,
+    shadowColor: '#ff007f',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  careButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  // オーバーレイ共通
+  overlayContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    justifyContent: 'flex-end',
+  },
+  overlayBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  // お世話メニュー（ボトムシート）
+  bottomSheet: {
+    backgroundColor: '#111827',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 0, 127, 0.25)',
+    shadowColor: '#ff007f',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
+  },
+  sheetHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#374151',
+    marginBottom: 12,
+  },
+  sheetTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  sheetButtonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 24,
   },
-  actionButton: {
+  sheetOptionButton: {
     flex: 1,
     backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 10,
+    borderRadius: 16,
+    padding: 16,
     alignItems: 'center',
     marginHorizontal: 4,
     borderWidth: 1,
     borderColor: '#334155',
   },
-  recoveryButton: {
-    borderColor: '#4d7c0f',
-    backgroundColor: '#14532d',
+  sheetOptionIcon: {
+    fontSize: 24,
+    marginBottom: 8,
   },
-  actionIcon: {
-    fontSize: 18,
-    marginBottom: 2,
-  },
-  actionLabel: {
-    color: '#f8fafc',
-    fontSize: 11,
+  sheetOptionLabel: {
+    color: '#fff',
+    fontSize: 13,
     fontWeight: 'bold',
+    marginBottom: 4,
   },
-  actionCost: {
+  sheetOptionDesc: {
     color: '#94a3b8',
     fontSize: 9,
-    marginTop: 2,
+    textAlign: 'center',
+  },
+  sheetCloseButton: {
+    backgroundColor: '#1f2937',
+    borderRadius: 16,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sheetCloseText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  // 回復ポップアップ（モーダル）
+  modalCard: {
+    position: 'absolute',
+    top: '30%',
+    left: 20,
+    right: 20,
+    backgroundColor: '#111827',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 127, 0.3)',
+    alignItems: 'center',
+    shadowColor: '#ff007f',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  modalSubtitle: {
+    color: '#94a3b8',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  modalOptionButton: {
+    backgroundColor: '#ff007f',
+    borderRadius: 16,
+    height: 48,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#ff007f',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  modalPayButton: {
+    backgroundColor: '#10b981',
+    shadowColor: '#10b981',
+  },
+  modalOptionText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  modalCloseButton: {
+    marginTop: 8,
+  },
+  modalCloseText: {
+    color: '#64748b',
+    fontSize: 13,
+  },
+  modalLoadingArea: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  modalLoadingText: {
+    color: '#94a3b8',
+    fontSize: 13,
+    marginTop: 16,
+  },
+  purchaseStatusText: {
+    color: '#34d399',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 12,
   },
 });
