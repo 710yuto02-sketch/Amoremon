@@ -28,6 +28,15 @@ const AI_RESPONSES = {
   ],
 };
 
+// 自動翻訳（Google翻訳等）の誤動作を防止するため、ゼロ幅スペースを含めたテキストを定義
+const TRANSLATION_SAFE_TEXT = {
+  care: "お" + "\u200b" + "世" + "\u200b" + "話" + "\u200b" + "を" + "\u200b" + "す" + "\u200b" + "る",
+  feed: "お" + "\u200b" + "食" + "\u200b" + "事",
+  play: "遊" + "\u200b" + "ぶ",
+  gift: "プ" + "\u200b" + "レ" + "\u200b" + "ゼ" + "\u200b" + "ン" + "\u200b" + "ト",
+  cancel: "キ" + "\u200b" + "ャ" + "\u200b" + "ン" + "\u200b" + "セ" + "\u200b" + "ル",
+};
+
 // Web用のCSSアニメーション定義
 const webStyles = `
   @keyframes float {
@@ -93,6 +102,16 @@ const webStyles = `
 `;
 
 if (isWeb && typeof document !== 'undefined') {
+  // 1. Google自動翻訳をサイト全体で無効化するメタタグを追加
+  const meta = document.createElement('meta');
+  meta.name = 'google';
+  meta.content = 'notranslate';
+  document.head.appendChild(meta);
+
+  // 2. <html>要素自体に 'notranslate' クラスを付与（Chromeの強制自動翻訳対策）
+  document.documentElement.classList.add('notranslate');
+
+  // 3. Web用のCSSアニメーション定義を追加
   const style = document.createElement('style');
   style.type = 'text/css';
   style.textContent = webStyles;
@@ -129,6 +148,8 @@ export default function App() {
   const [careScore, setCareScore] = useState(50); // お世話スコア
   const [isBouncing, setIsBouncing] = useState(false); // バウンド状態 (Web用)
   const [particles, setParticles] = useState([]); // お世話時のパーティクルエフェクト
+  const [chatHistory, setChatHistory] = useState([]); // 会話履歴 (Geminiに渡す用)
+  const [isTyping, setIsTyping] = useState(false); // AIが入力中（考えている）フラグ
 
   // --- アニメーション参照 ---
   const floatAnim = useRef(new Animated.Value(0)).current;
@@ -298,6 +319,87 @@ export default function App() {
     });
   };
 
+  // --- Gemini API (1.5 Flash) 呼び出し処理 ---
+  const callGeminiAPI = async (userMessage) => {
+    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+    if (!apiKey) return null;
+
+    // システム指示プロンプトの作成
+    let systemInstruction = `あなたは「${petName || 'あもれもん'}」という名前のAIペット（架空の生き物）です。
+ユーザーはあなたの飼い主（パートナー）です。
+以下のルールに従って、ユーザーとチャットをしてください：
+1. 返答は短く、スマートフォンのチャット用吹き出しに入るように、最大でも2〜3文（80文字程度）に収めてください。
+2. ユーザーに対して親密で、愛情を持っている態度で接してください。
+`;
+
+    // 進化状態に応じた性格の追加
+    if (evolution === 'angel') {
+      systemInstruction += `
+3. 現在、あなたは【エンジェル（天使）】の姿に進化しています。
+4. 口調は丁寧で優しく、常にユーザーを温かく見守り、励ます天使のような態度で話してください。
+5. 語尾には「〜ですね」「〜ですよ」「ふふっ👼」などを好んで使ってください。`;
+    } else if (evolution === 'devil') {
+      systemInstruction += `
+3. 現在、あなたは【デビル（悪魔）】の姿に進化しています。
+4. 口調はツンデレ、少し生意気で反抗的、だけど実はユーザーのことが大好きな悪魔の態度で話してください。
+5. 語尾には「〜だぞ」「〜だし！」「フン、べ、別に…///😈」などを好んで使ってください。`;
+    } else {
+      systemInstruction += `
+3. 現在、あなたは【ノーマル（通常）】の姿です。
+4. 口調は無邪気で人懐っこく、素直で愛嬌のあるペットのような態度で話してください。
+5. 語尾や感嘆符に「ピピ！」「ピュイ！」などを好んで使ってください。`;
+    }
+
+    // 会話履歴をGemini APIが受け入れる形式にフォーマット
+    const formattedHistory = chatHistory.map((msg) => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.text }],
+    }));
+
+    // 今回のメッセージを追加
+    const contents = [
+      ...formattedHistory,
+      {
+        role: 'user',
+        parts: [{ text: userMessage }],
+      },
+    ];
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents,
+            systemInstruction: {
+              parts: [{ text: systemInstruction }],
+            },
+            generationConfig: {
+              maxOutputTokens: 150,
+              temperature: 0.8,
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        console.error('Gemini API returned error code:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      return reply ? reply.trim() : null;
+    } catch (error) {
+      console.error('Failed to call Gemini API:', error);
+      return null;
+    }
+  };
+
   // --- アクションカウンターと進化チェック (合計5回お世話で進化) ---
   const checkEvolution = (currentActionCount, currentCareScore) => {
     if (evolution !== 'normal') return;
@@ -452,8 +554,8 @@ export default function App() {
   };
 
   // --- アクション処理: 会話する (送信) ---
-  const handleSendMessage = () => {
-    if (!inputText.trim()) return;
+  const handleSendMessage = async () => {
+    if (!inputText.trim() || isTyping) return;
     if (tokens <= 0) {
       setIsModalVisible(true);
       return;
@@ -461,16 +563,41 @@ export default function App() {
 
     const text = inputText;
     setInputText('');
+    setIsTyping(true); // 送信中ローディングオン
     setTokens((prev) => prev - 1);
 
     setAffection((prev) => Math.min(100, prev + 8));
     const nextCareScore = Math.min(100, careScore + 2);
     setCareScore(nextCareScore);
 
-    setTimeout(() => {
-      setPetEmotion('happy');
+    setPetEmotion('eating'); // 考えている表情
 
-      let reply = '';
+    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+    let reply = '';
+
+    // APIキーがあればGemini APIを呼ぶ
+    if (apiKey) {
+      const geminiReply = await callGeminiAPI(text);
+      if (geminiReply) {
+        reply = geminiReply;
+        // 履歴を更新（最新5往復までに制限）
+        setChatHistory((prev) => {
+          const nextHistory = [
+            ...prev,
+            { role: 'user', text },
+            { role: 'model', text: geminiReply },
+          ];
+          if (nextHistory.length > 10) {
+            return nextHistory.slice(nextHistory.length - 10);
+          }
+          return nextHistory;
+        });
+      }
+    }
+
+    // APIキーがない場合、またはGeminiの呼び出しが失敗した場合は定型文でフォールバック
+    if (!reply) {
+      setPetEmotion('happy');
       const textLower = text.toLowerCase();
       
       if (evolution === 'angel') {
@@ -498,10 +625,16 @@ export default function App() {
           reply = AI_RESPONSES.default[Math.floor(Math.random() * AI_RESPONSES.default.length)];
         }
       }
+    }
 
-      triggerBubble(formatReply(reply));
-      setTimeout(() => setPetEmotion('normal'), 2500);
-    }, 600);
+    // 吹き出しを起動
+    setPetEmotion('happy');
+    triggerBubble(formatReply(reply));
+    
+    setTimeout(() => {
+      setPetEmotion('normal');
+      setIsTyping(false); // ローディングオフ
+    }, 2000);
 
     checkEvolution(actionCount, nextCareScore);
   };
@@ -739,8 +872,16 @@ export default function App() {
                   onChangeText={setInputText}
                   onSubmitEditing={handleSendMessage}
                 />
-                <TouchableOpacity style={styles.sendButton} onPress={handleSendMessage}>
-                  <Text style={styles.sendButtonText}>送信</Text>
+                <TouchableOpacity 
+                  style={[styles.sendButton, isTyping && styles.sendButtonDisabled]} 
+                  onPress={handleSendMessage}
+                  disabled={isTyping}
+                >
+                  {isTyping ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.sendButtonText}>送信</Text>
+                  )}
                 </TouchableOpacity>
               </View>
 
@@ -750,7 +891,7 @@ export default function App() {
                 onPress={() => setIsMenuVisible(true)}
                 className={isWeb ? 'notranslate' : ''}
               >
-                <Text style={styles.careButtonText} className={isWeb ? 'notranslate' : ''}>お世話をする ✨</Text>
+                <Text style={styles.careButtonText} className={isWeb ? 'notranslate' : ''}>{TRANSLATION_SAFE_TEXT.care} ✨</Text>
               </TouchableOpacity>
             </View>
 
@@ -762,31 +903,31 @@ export default function App() {
                 <View style={styles.bottomSheet} className={isWeb ? 'notranslate web-slide-up' : ''}>
                   <View style={styles.sheetHeader}>
                     <View style={styles.sheetHandle} />
-                    <Text style={styles.sheetTitle} className={isWeb ? 'notranslate' : ''}>{petName}のお世話をする</Text>
+                    <Text style={styles.sheetTitle} className={isWeb ? 'notranslate' : ''}>{petName}の{TRANSLATION_SAFE_TEXT.care}</Text>
                   </View>
 
                   <View style={styles.sheetButtonsContainer}>
                     <TouchableOpacity style={styles.sheetOptionButton} onPress={performFeed} className={isWeb ? 'notranslate' : ''}>
                       <Text style={styles.sheetOptionIcon}>🍖</Text>
-                      <Text style={styles.sheetOptionLabel} className={isWeb ? 'notranslate' : ''}>お食事</Text>
+                      <Text style={styles.sheetOptionLabel} className={isWeb ? 'notranslate' : ''}>{TRANSLATION_SAFE_TEXT.feed}</Text>
                       <Text style={styles.sheetOptionDesc} className={isWeb ? 'notranslate' : ''}>エネルギーが回復します</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.sheetOptionButton} onPress={performPlay} className={isWeb ? 'notranslate' : ''}>
                       <Text style={styles.sheetOptionIcon}>🪁</Text>
-                      <Text style={styles.sheetOptionLabel} className={isWeb ? 'notranslate' : ''}>遊ぶ</Text>
+                      <Text style={styles.sheetOptionLabel} className={isWeb ? 'notranslate' : ''}>{TRANSLATION_SAFE_TEXT.play}</Text>
                       <Text style={styles.sheetOptionDesc} className={isWeb ? 'notranslate' : ''}>なつき度が上昇します</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.sheetOptionButton} onPress={performGift} className={isWeb ? 'notranslate' : ''}>
                       <Text style={styles.sheetOptionIcon}>🎁</Text>
-                      <Text style={styles.sheetOptionLabel} className={isWeb ? 'notranslate' : ''}>プレゼント</Text>
+                      <Text style={styles.sheetOptionLabel} className={isWeb ? 'notranslate' : ''}>{TRANSLATION_SAFE_TEXT.gift}</Text>
                       <Text style={styles.sheetOptionDesc} className={isWeb ? 'notranslate' : ''}>なつき度が大幅に上昇します</Text>
                     </TouchableOpacity>
                   </View>
 
                   <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setIsMenuVisible(false)} className={isWeb ? 'notranslate' : ''}>
-                    <Text style={styles.sheetCloseText} className={isWeb ? 'notranslate' : ''}>キャンセル</Text>
+                    <Text style={styles.sheetCloseText} className={isWeb ? 'notranslate' : ''}>{TRANSLATION_SAFE_TEXT.cancel}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1352,5 +1493,9 @@ const styles = StyleSheet.create({
   },
   particleText: {
     fontSize: 28,
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#1d4ed8',
+    opacity: 0.7,
   },
 });

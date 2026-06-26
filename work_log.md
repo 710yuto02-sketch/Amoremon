@@ -6,26 +6,26 @@
 * 2026年6月26日
 
 ## 💡 現在の進捗状況
-* **Phase 3：お世話時の演出エフェクト（パーティクル）実装完了**
-  * お食事、遊ぶ、プレゼントの各ボタンを押した際、あもれもんの周囲にそれぞれのテーマに沿った可愛い絵文字が飛び散って消えていく演出を実装し、動作を検証しました。
+* **Phase 4：Gemini AI（1.5 Flash）連携およびフォールバックの実装完了**
+  * あもれもんのチャット機能に本物のAI（Gemini API）を組み込み、進化状態に応じた性格設定のプロンプトを動的に切り替えて、記憶のある自然な会話ができるようになりました。
 
 ## 🛠️ 完了した作業
-1. **パーティクル演出の実装**:
-   * アクションごとの絵文字：
-     * お食事 🍖: `🍖, 🍕, 🍙, 🍰, ✨, 😋`
-     * 遊ぶ 🪁: `🪁, 🎈, ⚽, 🎵, ✨, 😆`
-     * プレゼント 🎁: `🎁, 💝, 💎, 🌟, ✨, 😍`
-   * アニメーション：React Nativeの `Animated` を活用し、中心部から放射状に飛び散りつつフェードアウト＆サイズ縮小する仕様。終了後は自動でメモリから削除。
-2. **お世話アクションへの統合**:
-   * `performFeed` / `performPlay` / `performGift` の中で `triggerParticles` 関数を呼び出し、動作時のバウンドと同時にエフェクトが発生するよう変更。
-3. **Webブラウザ上での検証**:
-   * ローカルサーバー（`localhost:8081`）でエフェクトがスムーズかつ崩れずに動作することを確認。
-   * トークンの減少・自動回復（15秒に1回復）が仕様通り作動していることを検証。
+1. **Gemini API連携処理の実装**:
+   * `App.js` に `callGeminiAPI` 関数を実装し、Google Gemini APIと接続しました。
+   * 直近5往復（最大10メッセージ）の会話履歴をメモリ（State）で保持し、文脈に沿った会話を可能にしました。
+2. **進化状態ごとの性格（プロンプト）の適用**:
+   * 進化状態（ノーマル、エンジェル、デビル）ごとにAIへのシステム指示（キャラクタープロンプト）を切り替え、口調が変化する仕組みを作りました。
+3. **キー無しのフォールバック（安全設計）と送信時ローディング**:
+   * `.env` にキーが書かれていない場合や通信エラー時には、自動的にこれまでの「定型お返事データベース」に切り替わるようにしました。
+   * 送信中は送信ボタンにぐるぐる回るインジケーター（ActivityIndicator）を表示し、連打を防ぐ非活性状態にしました。
+4. **自動翻訳バグの修正（notranslate）**:
+   * 「お世話をする」などのテキストに、自動翻訳を完全に防ぐ `className="notranslate"` を追加しました。
 
 ## 📂 主なファイル構成
-* [App.js](file:///C:/Users/y-kurita.DAIKYO/.gemini/antigravity-ide/scratch/amoremon/App.js): メインプログラム（パーティクル演出コード、スタイル追加）
+* [App.js](file:///C:/Users/y-kurita.DAIKYO/.gemini/antigravity-ide/scratch/amoremon/App.js): メインプログラム（AI連携、フォールバック、ローディング追加）
 * [app.json](file:///C:/Users/y-kurita.DAIKYO/.gemini/antigravity-ide/scratch/amoremon/app.json): アプリの設定
+* [.env](file:///C:/Users/y-kurita.DAIKYO/.gemini/antigravity-ide/scratch/amoremon/.env): 環境変数ファイル（APIキーの貼り付け先）
 * [work_log.md](file:///C:/Users/y-kurita.DAIKYO/.gemini/antigravity-ide/scratch/amoremon/work_log.md): この作業ログファイル
 
 ---
-*Next Action: ユーザーと相談の上、あもれもんの会話機能に本物のAI（Gemini API）を繋げるか、Firebaseによるデータ保存の実装へ進みます。*
+*Next Action: ユーザーと相談の上、Firebaseによるデータ保存機能（セーブ機能）の実装へ進みます。*
