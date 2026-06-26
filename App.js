@@ -744,13 +744,13 @@ export default function App() {
                 </TouchableOpacity>
               </View>
 
-              {/* 2段目: お世話をするボタンを下に大きく配置 (見切れ防止・自動翻訳対策のtranslate指定) */}
+              {/* 2段目: お世話をするボタンを下に大きく配置 (見切れ防止・自動翻訳対策のnotranslate指定) */}
               <TouchableOpacity 
                 style={styles.careMenuButton} 
                 onPress={() => setIsMenuVisible(true)}
-                translate="no"
+                className={isWeb ? 'notranslate' : ''}
               >
-                <Text style={styles.careButtonText} translate="no">お世話をする ✨</Text>
+                <Text style={styles.careButtonText} className={isWeb ? 'notranslate' : ''}>お世話をする ✨</Text>
               </TouchableOpacity>
             </View>
 
@@ -759,34 +759,34 @@ export default function App() {
               <View style={styles.overlayContainer} className={isWeb ? 'web-fade-in' : ''}>
                 <TouchableOpacity style={styles.overlayBg} activeOpacity={1} onPress={() => setIsMenuVisible(false)} />
                 
-                <View style={styles.bottomSheet} className={isWeb ? 'web-slide-up' : ''}>
+                <View style={styles.bottomSheet} className={isWeb ? 'notranslate web-slide-up' : ''}>
                   <View style={styles.sheetHeader}>
                     <View style={styles.sheetHandle} />
-                    <Text style={styles.sheetTitle} translate="no">{petName}のお世話をする</Text>
+                    <Text style={styles.sheetTitle} className={isWeb ? 'notranslate' : ''}>{petName}のお世話をする</Text>
                   </View>
 
                   <View style={styles.sheetButtonsContainer}>
-                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performFeed} translate="no">
+                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performFeed} className={isWeb ? 'notranslate' : ''}>
                       <Text style={styles.sheetOptionIcon}>🍖</Text>
-                      <Text style={styles.sheetOptionLabel} translate="no">お食事</Text>
-                      <Text style={styles.sheetOptionDesc} translate="no">エネルギーが回復します</Text>
+                      <Text style={styles.sheetOptionLabel} className={isWeb ? 'notranslate' : ''}>お食事</Text>
+                      <Text style={styles.sheetOptionDesc} className={isWeb ? 'notranslate' : ''}>エネルギーが回復します</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performPlay} translate="no">
+                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performPlay} className={isWeb ? 'notranslate' : ''}>
                       <Text style={styles.sheetOptionIcon}>🪁</Text>
-                      <Text style={styles.sheetOptionLabel} translate="no">遊ぶ</Text>
-                      <Text style={styles.sheetOptionDesc} translate="no">なつき度が上昇します</Text>
+                      <Text style={styles.sheetOptionLabel} className={isWeb ? 'notranslate' : ''}>遊ぶ</Text>
+                      <Text style={styles.sheetOptionDesc} className={isWeb ? 'notranslate' : ''}>なつき度が上昇します</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performGift} translate="no">
+                    <TouchableOpacity style={styles.sheetOptionButton} onPress={performGift} className={isWeb ? 'notranslate' : ''}>
                       <Text style={styles.sheetOptionIcon}>🎁</Text>
-                      <Text style={styles.sheetOptionLabel} translate="no">プレゼント</Text>
-                      <Text style={styles.sheetOptionDesc} translate="no">なつき度が大幅に上昇します</Text>
+                      <Text style={styles.sheetOptionLabel} className={isWeb ? 'notranslate' : ''}>プレゼント</Text>
+                      <Text style={styles.sheetOptionDesc} className={isWeb ? 'notranslate' : ''}>なつき度が大幅に上昇します</Text>
                     </TouchableOpacity>
                   </View>
 
-                  <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setIsMenuVisible(false)} translate="no">
-                    <Text style={styles.sheetCloseText} translate="no">キャンセル</Text>
+                  <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setIsMenuVisible(false)} className={isWeb ? 'notranslate' : ''}>
+                    <Text style={styles.sheetCloseText} className={isWeb ? 'notranslate' : ''}>キャンセル</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -797,34 +797,34 @@ export default function App() {
               <View style={styles.overlayContainer} className={isWeb ? 'web-fade-in' : ''}>
                 <View style={styles.overlayBg} />
                 
-                <View style={styles.modalCard} translate="no">
+                <View style={styles.modalCard} className={isWeb ? 'notranslate' : ''}>
                   {isAdLoading ? (
-                    <View style={styles.modalLoadingArea} translate="no">
+                    <View style={styles.modalLoadingArea} className={isWeb ? 'notranslate' : ''}>
                       <ActivityIndicator size="large" color="#ff007f" />
-                      <Text style={styles.modalLoadingText} translate="no">{petName}の夢を読み込み中... 💤</Text>
+                      <Text style={styles.modalLoadingText} className={isWeb ? 'notranslate' : ''}>{petName}の夢を読み込み中... 💤</Text>
                     </View>
                   ) : (
                     <>
-                      <Text style={styles.modalTitle} translate="no">{petName}がおねむです 😴</Text>
-                      <Text style={styles.modalSubtitle} translate="no">
+                      <Text style={styles.modalTitle} className={isWeb ? 'notranslate' : ''}>{petName}がおねむです 😴</Text>
+                      <Text style={styles.modalSubtitle} className={isWeb ? 'notranslate' : ''}>
                         アクションを起こすエネルギー（トークン）が空っぽになってしまいました。
                         ゆっくり休ませてあげるか、回復してあげましょう。
                       </Text>
 
                       {purchaseStatus ? (
-                        <Text style={styles.purchaseStatusText} translate="no">{purchaseStatus}</Text>
+                        <Text style={styles.purchaseStatusText} className={isWeb ? 'notranslate' : ''}>{purchaseStatus}</Text>
                       ) : null}
 
-                      <TouchableOpacity style={styles.modalOptionButton} onPress={handleWatchAd} translate="no">
-                        <Text style={styles.modalOptionText} translate="no">📽️ 動画を見て全回復（無料）</Text>
+                      <TouchableOpacity style={styles.modalOptionButton} onPress={handleWatchAd} className={isWeb ? 'notranslate' : ''}>
+                        <Text style={styles.modalOptionText} className={isWeb ? 'notranslate' : ''}>📽️ 動画を見て全回復（無料）</Text>
                       </TouchableOpacity>
 
-                      <TouchableOpacity style={[styles.modalOptionButton, styles.modalPayButton]} onPress={handlePurchaseTokens} translate="no">
-                        <Text style={styles.modalOptionText} translate="no">🪙 120円で即時全回復</Text>
+                      <TouchableOpacity style={[styles.modalOptionButton, styles.modalPayButton]} onPress={handlePurchaseTokens} className={isWeb ? 'notranslate' : ''}>
+                        <Text style={styles.modalOptionText} className={isWeb ? 'notranslate' : ''}>🪙 120円で即時全回復</Text>
                       </TouchableOpacity>
 
-                      <TouchableOpacity style={styles.modalCloseButton} onPress={() => setIsModalVisible(false)} translate="no">
-                        <Text style={styles.modalCloseText} translate="no">閉じる</Text>
+                      <TouchableOpacity style={styles.modalCloseButton} onPress={() => setIsModalVisible(false)} className={isWeb ? 'notranslate' : ''}>
+                        <Text style={styles.modalCloseText} className={isWeb ? 'notranslate' : ''}>閉じる</Text>
                       </TouchableOpacity>
                     </>
                   )}
