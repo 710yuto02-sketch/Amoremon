@@ -3,13 +3,13 @@
 別PCなどで作業を再開・引き継ぐための、ここまでの進捗まとめです。
 
 ## 📅 作業日時
-* 2026年6月26日
+* 2026年6月26日（セッション1：早朝 / セッション2：午前）
 
 ## 💡 現在の進捗状況
-* **Phase 4：Gemini AI（1.5 Flash）連携およびフォールバックの実装完了**
-  * あもれもんのチャット機能に本物のAI（Gemini API）を組み込み、進化状態に応じた性格設定のプロンプトを動的に切り替えて、記憶のある自然な会話ができるようになりました。
+* **Phase 4：Gemini AI連携 → モデル修正・リトライ機能追加済み（クレジット補充待ち）**
+* **Phase 5：お世話エフェクト（パーティクル演出）の実装完了**
 
-## 🛠️ 完了した作業
+## 🛠️ セッション1で完了した作業
 1. **Gemini API連携処理の実装**:
    * `App.js` に `callGeminiAPI` 関数を実装し、Google Gemini APIと接続しました。
    * 直近5往復（最大10メッセージ）の会話履歴をメモリ（State）で保持し、文脈に沿った会話を可能にしました。
@@ -21,11 +21,31 @@
 4. **自動翻訳バグの修正（notranslate）**:
    * 「お世話をする」などのテキストに、自動翻訳を完全に防ぐ `className="notranslate"` を追加しました。
 
+## 🛠️ セッション2で完了した作業
+5. **お世話エフェクト（パーティクル演出）の追加** ✅:
+   * 「お食事」→ 🍖🍗🍔 などの食べ物絵文字
+   * 「遊ぶ」→ ⭐🎵🌈 などの楽しい絵文字
+   * 「プレゼント」→ 💎🎀👑 などの宝石系絵文字
+   * がそれぞれボタンを押すとあもれもんの周りに飛び散る演出を実装しました。
+6. **AIモデルの修正とリトライ機能の追加** ✅:
+   * 使用モデルを `gemini-2.5-flash` に変更（動作テスト済み）。
+   * サーバー混雑時（503/429エラー）に自動で最大3回リトライする仕組みを追加。
+7. **APIキー仕様の調査結果**:
+   * `AQ.` から始まるキーはGoogle最新の正規キー（従来の `AIza` から移行済み）。
+   * **キー自体は正常に動作することを確認済み。**
+
+## ⚠️ 未解決の問題（次回最優先）
+* **Google AI Studioのプリペイドクレジットが0になっている**ため、現在APIが使えない状態。
+* 次回開発時に以下のいずれかを実施：
+  1. https://ai.studio/projects でクレジットを追加購入する
+  2. 従量課金（Pay-as-you-go）に切り替える
+* クレジット補充後、チャットでAIの返答が正常に返るかテストする。
+
 ## 📂 主なファイル構成
-* [App.js](file:///C:/Users/y-kurita.DAIKYO/.gemini/antigravity-ide/scratch/amoremon/App.js): メインプログラム（AI連携、フォールバック、ローディング追加）
-* [app.json](file:///C:/Users/y-kurita.DAIKYO/.gemini/antigravity-ide/scratch/amoremon/app.json): アプリの設定
-* [.env](file:///C:/Users/y-kurita.DAIKYO/.gemini/antigravity-ide/scratch/amoremon/.env): 環境変数ファイル（APIキーの貼り付け先）
-* [work_log.md](file:///C:/Users/y-kurita.DAIKYO/.gemini/antigravity-ide/scratch/amoremon/work_log.md): この作業ログファイル
+* App.js: メインプログラム（AI連携、エフェクト、リトライ機能）
+* app.json: アプリの設定
+* .env: 環境変数ファイル（APIキーの貼り付け先）
+* work_log.md: この作業ログファイル
 
 ---
-*Next Action: ユーザーと相談の上、Firebaseによるデータ保存機能（セーブ機能）の実装へ進みます。*
+*Next Action: Google AI Studioのクレジット補充 → AI会話テスト → Firebase保存機能 or UI改善*

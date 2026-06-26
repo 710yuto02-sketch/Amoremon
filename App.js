@@ -366,43 +366,58 @@ export default function App() {
     ];
 
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
-        {
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const requestBody = JSON.stringify({
+        contents,
+        systemInstruction: {
+          parts: [{ text: systemInstruction }],
+        },
+        generationConfig: {
+          maxOutputTokens: 150,
+          temperature: 0.8,
+        },
+      });
+
+      // 最大3回まで自動リトライ（混雑時の503/429対策）
+      let lastError = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          // リトライ前に少し待つ（2秒 × 試行回数）
+          await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+        }
+
+        const response = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            contents,
-            systemInstruction: {
-              parts: [{ text: systemInstruction }],
-            },
-            generationConfig: {
-              maxOutputTokens: 150,
-              temperature: 0.8,
-            },
-          }),
-        }
-      );
+          body: requestBody,
+        });
 
-      if (!response.ok) {
+        if (response.ok) {
+          const data = await response.json();
+          const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          return reply ? reply.trim() : null;
+        }
+
+        // 503（混雑中）または429（制限）の場合はリトライ
+        if (response.status === 503 || response.status === 429) {
+          console.warn(`Gemini API attempt ${attempt + 1}/3 returned ${response.status}, retrying...`);
+          lastError = response.status;
+          continue;
+        }
+
+        // その他のエラーはリトライしない
         console.error('Gemini API returned error code:', response.status);
         try {
           const errorData = await response.json();
           console.error('Gemini API Error Detail:', JSON.stringify(errorData));
-        } catch (_) {
-          try {
-            const errorText = await response.text();
-            console.error('Gemini API Error Text:', errorText);
-          } catch (__) {}
-        }
+        } catch (_) {}
         return null;
       }
 
-      const data = await response.json();
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      return reply ? reply.trim() : null;
+      console.error('Gemini API failed after 3 retries, last error:', lastError);
+      return null;
     } catch (error) {
       console.error('Failed to call Gemini API:', error);
       return null;
