@@ -128,6 +128,7 @@ export default function App() {
   const [petEmotion, setPetEmotion] = useState('normal'); // 感情
   const [careScore, setCareScore] = useState(50); // お世話スコア
   const [isBouncing, setIsBouncing] = useState(false); // バウンド状態 (Web用)
+  const [particles, setParticles] = useState([]); // お世話時のパーティクルエフェクト
 
   // --- アニメーション参照 ---
   const floatAnim = useRef(new Animated.Value(0)).current;
@@ -231,6 +232,72 @@ export default function App() {
     return text.replace(/あもれもん/g, petName || 'あもれもん');
   };
 
+  // --- パーティクルエフェクトの発生ロジック ---
+  const triggerParticles = (type) => {
+    let emojis = [];
+    if (type === 'feed') {
+      emojis = ['🍖', '🍕', '🍙', '🍰', '✨', '😋'];
+    } else if (type === 'play') {
+      emojis = ['🪁', '🎈', '⚽', '🎵', '✨', '😆'];
+    } else if (type === 'gift') {
+      emojis = ['🎁', '💝', '💎', '🌟', '✨', '😍'];
+    }
+
+    const count = 8;
+    const newParticles = [];
+
+    for (let i = 0; i < count; i++) {
+      const id = Math.random().toString(36).substring(7);
+      const emoji = emojis[Math.floor(Math.random() * emojis.length)];
+      const x = new Animated.Value(0);
+      const y = new Animated.Value(0);
+      const opacity = new Animated.Value(1);
+      const scale = new Animated.Value(0.5);
+
+      newParticles.push({ id, emoji, x, y, opacity, scale });
+    }
+
+    setParticles((prev) => [...prev, ...newParticles]);
+
+    newParticles.forEach((p) => {
+      const angle = Math.random() * 2 * Math.PI;
+      const distance = 60 + Math.random() * 80;
+      const targetX = Math.cos(angle) * distance;
+      const targetY = Math.sin(angle) * distance - (15 + Math.random() * 20);
+
+      Animated.parallel([
+        Animated.timing(p.x, {
+          toValue: targetX,
+          duration: 800,
+          useNativeDriver: !isWeb,
+        }),
+        Animated.timing(p.y, {
+          toValue: targetY,
+          duration: 800,
+          useNativeDriver: !isWeb,
+        }),
+        Animated.timing(p.scale, {
+          toValue: 1.4,
+          duration: 400,
+          useNativeDriver: !isWeb,
+        }).start(() => {
+          Animated.timing(p.scale, {
+            toValue: 0.4,
+            duration: 400,
+            useNativeDriver: !isWeb,
+          }).start();
+        }),
+        Animated.timing(p.opacity, {
+          toValue: 0,
+          duration: 800,
+          useNativeDriver: !isWeb,
+        }),
+      ]).start(() => {
+        setParticles((prev) => prev.filter((item) => item.id !== p.id));
+      });
+    });
+  };
+
   // --- アクションカウンターと進化チェック (合計5回お世話で進化) ---
   const checkEvolution = (currentActionCount, currentCareScore) => {
     if (evolution !== 'normal') return;
@@ -289,6 +356,7 @@ export default function App() {
     }
 
     setTokens((prev) => prev - 1);
+    triggerParticles('feed');
     setHunger((prev) => Math.min(100, prev + 25));
     setAffection((prev) => Math.min(100, prev + 5));
     const nextCareScore = Math.min(100, careScore + 5);
@@ -328,6 +396,7 @@ export default function App() {
     }
 
     setTokens((prev) => prev - 1);
+    triggerParticles('play');
     setAffection((prev) => Math.min(100, prev + 12));
     const nextCareScore = Math.min(100, careScore + 6);
     setCareScore(nextCareScore);
@@ -359,6 +428,7 @@ export default function App() {
     }
 
     setTokens((prev) => prev - 1);
+    triggerParticles('gift');
     setAffection((prev) => Math.min(100, prev + 25));
     const nextCareScore = Math.min(100, careScore + 12);
     setCareScore(nextCareScore);
@@ -632,6 +702,26 @@ export default function App() {
                   </View>
                 </View>
               </Animated.View>
+
+              {/* パーティクルエフェクト */}
+              {particles.map((p) => (
+                <Animated.View
+                  key={p.id}
+                  style={[
+                    styles.particle,
+                    {
+                      transform: [
+                        { translateX: p.x },
+                        { translateY: p.y },
+                        { scale: p.scale },
+                      ],
+                      opacity: p.opacity,
+                    },
+                  ]}
+                >
+                  <Text style={styles.particleText}>{p.emoji}</Text>
+                </Animated.View>
+              ))}
             </View>
 
             {/* 観察空間 (完全に空白) */}
@@ -1255,5 +1345,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     marginBottom: 12,
+  },
+  particle: {
+    position: 'absolute',
+    zIndex: 10,
+  },
+  particleText: {
+    fontSize: 28,
   },
 });
