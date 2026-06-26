@@ -367,7 +367,7 @@ export default function App() {
 
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: {
@@ -388,6 +388,15 @@ export default function App() {
 
       if (!response.ok) {
         console.error('Gemini API returned error code:', response.status);
+        try {
+          const errorData = await response.json();
+          console.error('Gemini API Error Detail:', JSON.stringify(errorData));
+        } catch (_) {
+          try {
+            const errorText = await response.text();
+            console.error('Gemini API Error Text:', errorText);
+          } catch (__) {}
+        }
         return null;
       }
 
